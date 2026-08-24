@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- Viewport — viewport-fit=cover lets the app extend under the iPhone notch
+         and lets env(safe-area-inset-*) work in CSS. -->
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+
+    <title>轻阅读</title>
+
+    <!-- ── 设计稿字体 ──────────────────────────────────────────────────
+         各设计原型的 <head> 都引入了这几族字体，是「一比一还原」的一部分：
+           Noto Sans SC   正文（--sans，苹方系之后的回退）
+           Noto Serif SC  书名 / 大标题 / 眉标 / 阅读页正文（--serif）
+           EB Garamond    编号 / 英文小标 / ID / KPI 数字（--num，含斜体）
+           JetBrains Mono 日志时间 / 代码块 / 密钥掩码（--mono）
+         字重取四份原型（内部后台 / 审稿编辑部 iOS / 网页版 / 作者端）的并集。
+         不引入时 --num 会回退到 Georgia、--mono 回退到 Menlo，与原型有可见差距。
+         display=swap：CJK 字体较大，先用系统字渲染再换字，避免首屏空白。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+    <!-- ── Web App Manifest (Android / Chrome / Edge) ──────────────────── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- theme-color: media-aware so dark-mode Safari doesn't paint a dark
+         URL-bar above a light page (and vice-versa). -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#ffffff" />
+    <meta name="theme-color" content="#ffffff" />
+
+    <!-- ── iOS Add-to-Home-Screen (PWA) ────────────────────────────────── -->
+    <!-- Run standalone (hide Safari chrome) once added to home screen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- mobile-web-app-capable is the spec-current alias; iOS reads the apple- prefix. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Status bar style:
+         default      = white bg, black text — webview starts BELOW status bar
+                        (visible white strip above page)
+         black        = black bg, white text — same vertical inset
+         black-translucent = transparent bg, white text — page extends to
+                        the very top edge (no strip). Use this + per-page
+                        env(safe-area-inset-top) padding to keep content
+                        clear of the status bar while reclaiming the top
+                        edge for the page background. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Title shown under the home-screen icon. -->
+    <meta name="apple-mobile-web-app-title" content="轻阅读" />
+
+    <!-- Icons — drop the matching PNGs into front/public/ (see README at bottom).
+         iOS picks 180×180 (apple-touch-icon.png) for the home-screen icon. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png" />
+
+    <!-- Favicon fallback (browser tab + Android secondary). -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32"  href="/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+
+    <!-- Tell iOS not to auto-detect phone numbers as tappable links. -->
+    <meta name="format-detection" content="telephone=no" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
