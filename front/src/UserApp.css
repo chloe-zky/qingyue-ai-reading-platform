@@ -1,0 +1,100 @@
+/* UserApp.css — mobile-app shell with bottom tabs. */
+
+.userapp-root {
+  width: 100%;
+  min-height: 100vh;   /* fallback for old iOS */
+  min-height: 100lvh;  /* iOS 主屏/standalone 下填满真实视口，避免底部白边 */
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+  color: #15171c;
+}
+
+.userapp-frame {
+  width: 100%;
+  max-width: 480px;
+  /* Tab-bar sizing — shared by the content spacer, reader host, and the bar
+     itself so they never drift apart.
+       --tabbar-h    : button (tap) area height
+       --tabbar-safe : home-indicator band; full safe-inset minus 8px so the
+                       bottom white isn't excessive, while icons keep clear. */
+  --tabbar-h: 52px;
+  --tabbar-safe: max(0px, env(safe-area-inset-bottom, 0px) - 8px);
+  background: #ffffff;
+  height: 100vh;                /* fallback for old iOS */
+  height: 100lvh;               /* large (toolbars-retracted) viewport height:
+                                   in standalone = full screen, static from the
+                                   first paint. svh under-measures; dvh starts
+                                   small and only settles after a scroll. */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.userapp-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  /* Reserve the tab-bar footprint (kept in sync via the shared vars). */
+  padding-bottom: calc(var(--tabbar-h) + var(--tabbar-safe));
+  display: flex;
+  flex-direction: column;
+}
+
+/* ReaderPage host — ReaderPage internally uses absolute positioning. */
+.userapp-reader-host {
+  position: absolute;
+  inset: 0 0 calc(var(--tabbar-h) + var(--tabbar-safe)) 0;
+  overflow: hidden;
+}
+
+/* ── Bottom tab bar ──────────────────────────────────── */
+/*
+ * Native-iOS-style tab bar (cf. ONE 一个 / Apple Music):
+ *   - bg extends through home-indicator zone → grounded look
+ *   - buttons sit in the top 56px, raised above the indicator
+ *   - active state is communicated entirely by icon FILL (line → solid),
+ *     not by a background pill. Text colour also goes dark on active.
+ */
+.userapp-tabbar {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 0;
+  height: calc(var(--tabbar-h) + var(--tabbar-safe));
+  padding-bottom: var(--tabbar-safe);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  border-top: 1px solid #e5dfd2;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  z-index: 10;
+}
+
+.userapp-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 4px;   /* symmetric top/bottom so icon+label sits evenly */
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: #7e828a;
+  transition: color 200ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.userapp-tab.is-active {
+  color: #15171c;
+  font-weight: 500;
+}

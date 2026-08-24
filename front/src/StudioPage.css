@@ -1,0 +1,151 @@
+/* StudioPage.css — quiet workbench. Desktop-friendly but mobile-safe. */
+
+.studio-root {
+  width: 100%;
+  min-height: 100svh;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+  color: #15171c;
+}
+
+.studio-subnav {
+  flex-shrink: 0;
+  /* Safe-area top so the "← 返回..." button clears the status bar. */
+  padding: calc(18px + env(safe-area-inset-top, 0px)) 28px 12px;
+  border-bottom: 1px solid #e5dfd2;
+  background: #ffffff;
+}
+
+.studio-back {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 300;
+  letter-spacing: 0.14em;
+  color: #4b505a;
+  padding: 6px 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.studio-back:hover { color: #1f2a5c; }
+
+/* ── Studio home ─────────────────────────────────────── */
+.studio-home {
+  flex: 1;
+  padding: 48px 28px 36px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.studio-eyebrow {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  color: #7e828a;
+  margin-bottom: 16px;
+}
+
+.studio-title {
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: #15171c;
+  margin: 0 0 10px;
+}
+
+.studio-desc {
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  color: #4b505a;
+  margin: 0 0 36px;
+  max-width: 460px;
+}
+
+/* ── Cards ───────────────────────────────────────────── */
+.studio-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid #e5dfd2;
+  margin-bottom: 32px;
+}
+
+.studio-card {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #e5dfd2;
+  cursor: pointer;
+  padding: 22px 4px;
+  font-family: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  transition: background 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.studio-card:hover { background: rgba(31, 42, 92, 0.03); }
+
+.studio-card-num {
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", serif;
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  color: #1f2a5c;
+  min-width: 28px;
+}
+
+.studio-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.studio-card-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #15171c;
+}
+
+.studio-card-desc {
+  font-size: 12px;
+  font-weight: 300;
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+  color: #7e828a;
+}
+
+.studio-card-arrow {
+  font-size: 16px;
+  font-weight: 300;
+  color: #7e828a;
+}
+
+.studio-footer {
+  margin-top: auto;
+  font-size: 10.5px;
+  font-weight: 300;
+  letter-spacing: 0.24em;
+  color: #7e828a;
+  padding-top: 16px;
+}
+
+/* ── Embed wrapper for EditorPage / AdminPage ────────── */
+.studio-embed {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
