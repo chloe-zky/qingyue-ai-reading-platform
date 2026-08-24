@@ -1,0 +1,1112 @@
+/* author.css — 逐字移植自 作者端原型.html <style> 块。
+ * 设计数值一律未改；仅两处工程化处理：
+ *   1) 去掉评审外壳（.stage / .jumper / .print-frame / @media 880 / html,body）；
+ *   2) 全部规则收敛到 .acx 作用域（元素类名与原型一致，见 README「类名照搬」）。
+ * 令牌落在 .acx（原 :root），随子节点级联。安全区在组件里改用 env() 适配真实设备。 */
+
+.acx{
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  display: flex;
+  flex-direction: column;
+}
+
+.acx{
+    /* ── 素白·淡蓝点睛 ── */
+    --paper:        #FCFCFB;   /* 素白 */
+    --paper-warm:   #F4EFE6;   /* 护眼米色 */
+    --paper-soft:   #F5F6F5;
+    --ink:          #1E2A2E;   /* 深青墨 */
+    --ink-2:        #4A5A60;
+    --ink-3:        #7C8B90;
+    --ink-4:        #AFBBBF;
+    --rule:         #E4E7E6;
+    --rule-soft:    #EEF0EF;
+    --accent:       #8B3A2E;   /* 暗红棕 · 点睛（第一版） */
+    --accent-deep:  #6E2A20;
+    --accent-2:     #3A6B9E;
+
+    /* ── 字体栈 ── */
+    /* 主字：苹方 / 思源黑体 / HarmonyOS Sans / 系统兜底（与微信公众号正文一致路径） */
+    --sans: -apple-system, BlinkMacSystemFont,
+            "PingFang SC", "Helvetica Neue", Helvetica,
+            "Source Han Sans SC", "Source Han Sans CN", "Noto Sans SC",
+            "HarmonyOS Sans SC", "MiSans",
+            "Microsoft YaHei", "微软雅黑",
+            Arial, sans-serif;
+    /* 衬线：仅用于大标题 / 印鉴 / 存执编号 / "投稿"品牌字 */
+    --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+    /* 拉丁数字 */
+    --num:   "EB Garamond", "Source Serif Pro", Georgia, serif;
+  }
+
+.acx *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* ───────── 应用内 · 全局样式（落在 .app 里，避免泄漏到外壳） ───────── */
+.acx .app{
+    width: 100%; height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+.acx .app.warm{ background: var(--paper-warm); }
+
+.acx .app .scroll{
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
+  }
+
+/* iOS 状态栏安全区 spacer（开屏不被劈海 / 灵动岛遮挡）。
+ * 原型硬编码 46/54px（设备模拟）；生产改用 env()，回退到原型值。 */
+.acx .topwrap{ padding-top: env(safe-area-inset-top, 46px); }
+
+.acx .app > .scroll:first-child{ padding-top: env(safe-area-inset-top, 54px); }
+
+/* 顶部 nav */
+.acx .topnav{
+    flex: 0 0 auto;
+    padding: 8px 22px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: transparent;
+  }
+
+.acx .topnav .brand{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--ink);
+    letter-spacing: 0.12em;
+  }
+
+.acx .topnav .back{
+    font-size: 13px;
+    color: var(--ink-3);
+    background: transparent; border: 0;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    padding: 4px 0;
+  }
+
+.acx .topnav .back::before{ content: "← "; font-family: var(--num); }
+
+.acx .topnav .right-link{
+    font-size: 13px;
+    color: var(--ink-2);
+    background: transparent; border: 0;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+
+.acx .topnav .rule{
+    height: 1px; background: var(--rule);
+    margin: 0 -22px;
+  }
+
+/* 进度点 */
+.acx .dots{
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 22px 24px;
+  }
+
+.acx .dots .seg{
+    height: 1px; flex: 1;
+    background: var(--rule);
+    transition: background .3s, height .3s;
+  }
+
+.acx .dots .seg.on{ background: var(--ink); height: 2px; }
+
+.acx .dots .ix{
+    font-family: var(--num);
+    font-size: 10.5px;
+    color: var(--ink-4);
+    letter-spacing: 0.12em;
+  }
+
+/* 页面主体 */
+.acx .page{ padding: 6px 22px 0; }
+
+.acx .page h2{
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 30px;
+    letter-spacing: 0.01em;
+    margin: 6px 0 6px;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+
+.acx .page .sub{
+    color: var(--ink-3);
+    font-size: 13.5px;
+    line-height: 1.65;
+    margin: 0 0 28px;
+    letter-spacing: 0.02em;
+  }
+
+/* 字段 · 下划线式 */
+.acx .field{ margin-bottom: 26px; }
+
+.acx .field .lbl{
+    font-family: var(--num);
+    font-size: 10.5px;
+    color: var(--ink-4);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+
+.acx .field .lbl .hint{
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--ink-4);
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+
+.acx .field input.val,
+.acx .field textarea.val{
+    width: 100%;
+    border: 0;
+    background: transparent;
+    border-bottom: 1px solid var(--ink-4);
+    padding: 4px 0 8px;
+    font-family: var(--sans);
+    font-size: 17px;
+    color: var(--ink);
+    outline: none;
+    border-radius: 0;
+    resize: none;
+    letter-spacing: 0.01em;
+  }
+
+.acx .field input.val:focus,
+.acx .field textarea.val:focus{
+    border-bottom: 1.5px solid var(--ink);
+  }
+
+.acx .field input.val::placeholder,
+.acx .field textarea.val::placeholder{
+    color: var(--ink-4);
+    font-weight: 300;
+  }
+
+/* 稿纸式 textarea：底部 28px 间隔的横线 */
+.acx .field textarea.val.paper{
+    border-bottom: 0;
+    background:
+      repeating-linear-gradient(
+        transparent 0,
+        transparent 27px,
+        var(--rule-soft) 27px,
+        var(--rule-soft) 28px
+      );
+    background-attachment: local;
+    line-height: 28px;
+    padding: 0 0 6px;
+    min-height: 168px;
+    font-size: 15.5px;
+  }
+
+.acx .field textarea.val.short{ min-height: 84px; }
+
+/* 温柔提示 */
+.acx .gentle{
+    border-left: 2px solid var(--rule);
+    padding: 2px 0 2px 14px;
+    color: var(--ink-2);
+    font-size: 12.5px;
+    line-height: 1.7;
+    margin: -8px 0 24px;
+    letter-spacing: 0.02em;
+  }
+
+.acx .gentle.accent{ border-left-color: var(--accent); }
+
+.acx .gentle .h{ color: var(--ink); font-weight: 500; display: block; margin-bottom: 3px; }
+
+/* 按钮 */
+.acx .btn{
+    display: inline-flex;
+    justify-content: center; align-items: center;
+    padding: 14px 22px;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    background: var(--ink);
+    color: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 2px;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    width: 100%;
+    transition: opacity .15s;
+  }
+
+.acx .btn:active{ opacity: .82; }
+
+.acx .btn.ghost{
+    background: transparent;
+    color: var(--ink);
+  }
+
+.acx .btn.thin{ padding: 11px 18px; font-size: 14px; }
+
+.acx .btn-row{ display: flex; gap: 10px; }
+
+.acx .btn-stack{ display: flex; flex-direction: column; gap: 10px; }
+
+/* 段标题（如"附件"） */
+.acx .section-h{
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--ink);
+    letter-spacing: 0.04em;
+    margin: 6px 0 4px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+
+.acx .section-h .ko{
+    font-family: var(--num);
+    font-size: 10px;
+    color: var(--ink-4);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+.acx .section-sub{
+    color: var(--ink-3);
+    font-size: 12px;
+    margin: 0 0 12px;
+  }
+
+/* segmented control */
+.acx .seg-ctrl{
+    display: flex;
+    border: 1px solid var(--ink);
+    margin-bottom: 14px;
+  }
+
+.acx .seg-ctrl button{
+    flex: 1;
+    background: transparent;
+    border: 0;
+    padding: 9px 10px;
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--ink-2);
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    border-right: 1px solid var(--ink);
+  }
+
+.acx .seg-ctrl button:last-child{ border-right: 0; }
+
+.acx .seg-ctrl button.on{
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+/* 文件附件区 */
+.acx .file-drop{
+    border: 1px solid var(--rule);
+    background: var(--paper-soft);
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    position: relative;
+  }
+
+.acx .file-drop .row1{
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+
+.acx .file-drop .tag{
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+
+.acx .file-drop .types{
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink-4);
+  }
+
+.acx .file-drop .hint{
+    color: var(--ink-2);
+    font-size: 13px;
+    text-align: left;
+    padding: 14px 0 4px;
+    line-height: 1.6;
+  }
+
+.acx .file-drop .hint .em{ color: var(--ink); }
+
+.acx .file-drop .bar{
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px; background: var(--rule);
+    overflow: hidden;
+  }
+
+.acx .file-drop .bar::after{
+    content: ""; position: absolute;
+    inset: 0 var(--remain, 60%) 0 0;
+    background: var(--ink);
+    transition: inset .3s linear;
+  }
+
+.acx .file-drop.has{
+    background: var(--paper);
+    border-color: var(--ink);
+  }
+
+.acx .file-drop.has .filename{
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; color: var(--ink); padding: 6px 0 0;
+  }
+
+.acx .file-drop.has .filename .icon{
+    width: 24px; height: 28px; flex: 0 0 24px;
+    border: 1px solid var(--ink);
+    position: relative;
+    background: var(--paper);
+  }
+
+.acx .file-drop.has .filename .icon::after{
+    content: "DOC";
+    position: absolute;
+    inset: 0; display: flex; align-items: center; justify-content: center;
+    font-family: var(--num);
+    font-size: 8px;
+    color: var(--ink);
+    letter-spacing: 0.08em;
+  }
+
+.acx .file-drop.has .filename .size{
+    color: var(--ink-3); font-size: 12px;
+    font-family: var(--num); letter-spacing: 0.04em;
+  }
+
+.acx .file-drop.has .action{
+    display: flex; gap: 14px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dotted var(--rule);
+  }
+
+.acx .file-drop.has .action button{
+    background: transparent; border: 0;
+    font-family: var(--sans);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    cursor: pointer;
+    padding: 2px 0;
+  }
+
+.acx .file-drop.has .action button:hover{ color: var(--ink); }
+
+.acx .file-drop.has .action button.danger:hover{ color: var(--accent); }
+
+/* 封面图区 4:3 */
+.acx .cover-drop{
+    aspect-ratio: 4/3;
+    border: 1px solid var(--rule);
+    background: var(--paper-soft);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    cursor: pointer;
+    position: relative;
+  }
+
+.acx .cover-drop .tag{
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+
+.acx .cover-drop .center{
+    color: var(--ink-2);
+    font-size: 13px;
+    text-align: center;
+    margin: auto 0;
+  }
+
+.acx .cover-drop .types{
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink-4);
+    align-self: flex-end;
+  }
+
+.acx .cover-drop.filled{
+    background-color: #C8B89A;
+    background-image:
+      linear-gradient(120deg, rgba(124,95,69,.55) 0%, rgba(200,184,154,.2) 60%, rgba(155,128,98,.5) 100%);
+  }
+
+.acx .cover-drop.filled .tag,
+.acx .cover-drop.filled .types{ color: rgba(252,251,248,.85); }
+
+.acx .cover-drop.filled .center{ display: none; }
+
+.acx .cover-drop .swap{
+    position: absolute;
+    left: 12px; bottom: 12px;
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: rgba(252,251,248,.92);
+    background: rgba(27,27,26,.45);
+    padding: 5px 9px;
+    border: 0;
+    cursor: pointer;
+  }
+
+/* 草稿脚注 */
+.acx .draft-foot{
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 22px;
+    border-top: 1px dotted var(--rule);
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+
+.acx .draft-foot .dot{
+    display: inline-block; width: 4px; height: 4px;
+    background: var(--accent); border-radius: 50%;
+    margin-right: 8px; vertical-align: 2px;
+    animation: heartbeat 2.2s ease-in-out infinite;
+  }
+
+@keyframes heartbeat {
+    0%, 100%{ opacity: 1; }
+    45%{ opacity: .4; }
+  }
+
+/* 印鉴 */
+.acx .seal{
+    display: inline-block;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    padding: 7px 9px 6px;
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.32em;
+    line-height: 1.2;
+    transform: rotate(-6deg);
+    box-shadow:
+      inset 0 0 0 1px rgba(139,58,46,.18),
+      inset 0 0 8px rgba(139,58,46,.06);
+    text-align: center;
+    background:
+      radial-gradient(circle at 25% 30%, rgba(139,58,46,.05) 0, transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(139,58,46,.07) 0, transparent 55%);
+    white-space: nowrap;
+  }
+
+/* 存执 · masthead + ledger */
+.acx .masthead{
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1.5px solid var(--ink);
+  }
+
+.acx .masthead .ttl{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    color: var(--ink);
+  }
+
+.acx .masthead .ref{
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--ink-2);
+    text-transform: uppercase;
+  }
+
+.acx .ledger{
+    border-top: 1px solid var(--rule);
+    margin-top: 0;
+  }
+
+.acx .ledger .row{
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dotted var(--rule);
+    font-size: 13px;
+    align-items: baseline;
+  }
+
+.acx .ledger .row .k{
+    font-family: var(--num);
+    font-size: 10px;
+    color: var(--ink-4);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+.acx .ledger .row .v{ color: var(--ink); }
+
+.acx .ledger .row .v.num,
+.acx .ledger .row .v.time{
+    font-family: var(--num);
+    letter-spacing: 0.04em;
+  }
+
+.acx .ledger .row .v .stat-dot{
+    display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--accent);
+    margin-right: 8px; vertical-align: 1px;
+  }
+
+.acx .ledger .row .v .stat-dot.pend{
+    background: transparent; border: 1px solid var(--ink-3);
+  }
+
+/* 撕口 */
+.acx .perf{
+    position: relative;
+    height: 16px;
+    margin: 18px -22px;
+    border-top: 1px dashed var(--rule);
+    border-bottom: 1px dashed var(--rule);
+  }
+
+.acx .perf::before,
+.acx .perf::after{
+    content: "";
+    position: absolute; top: 50%;
+    transform: translateY(-50%);
+    width: 12px; height: 12px;
+    background: #E4E9E9;
+    border-radius: 50%;
+  }
+
+.acx .perf::before{ left: -6px; }
+
+.acx .perf::after{ right: -6px; }
+
+.acx .perf .lb{
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%,-50%);
+    background: var(--paper);
+    padding: 0 10px;
+    font-family: var(--num);
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+
+/* 报头 nameplate */
+.acx .nameplate{
+    text-align: center;
+    padding: 14px 0 12px;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    margin: 0 22px 4px;
+    position: relative;
+  }
+
+.acx .nameplate .np-name{
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+.acx .nameplate .np-sub{
+    font-family: var(--num);
+    font-size: 9.5px;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-top: 8px;
+  }
+
+.acx .np-edition{
+    display: flex; justify-content: space-between;
+    font-family: var(--num);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    margin: 0 22px;
+    padding-top: 4px;
+  }
+
+/* 大号折页数字 folio */
+.acx .folio{
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 62px;
+    line-height: 0.8;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    position: relative;
+    display: inline-block;
+  }
+
+.acx .folio .of{
+    font-family: var(--num);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--ink-4);
+    letter-spacing: 0.1em;
+    vertical-align: super;
+    margin-left: 4px;
+  }
+
+/* 小型章标 · 引导点线 */
+.acx .rubric{
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--num);
+    font-size: 10px;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+  }
+
+.acx .rubric::after{
+    content: ""; flex: 1; height: 1px;
+    background: repeating-linear-gradient(90deg, var(--rule) 0 2px, transparent 2px 5px);
+  }
+
+.acx .rubric .mk{ color: var(--accent); }
+
+.acx .app.warm .perf .lb{ background: var(--paper-warm); }
+
+/* 处理轨迹 */
+.acx .trace{
+    list-style: none;
+    margin: 0; padding-left: 0;
+    position: relative;
+  }
+
+.acx .trace::before{
+    content: "";
+    position: absolute;
+    left: 5px; top: 8px; bottom: 8px;
+    width: 1px;
+    background: var(--rule);
+  }
+
+.acx .trace li{
+    position: relative;
+    padding: 6px 0 12px 22px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+.acx .trace li::before{
+    content: "";
+    position: absolute;
+    left: 2px; top: 11px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 1px solid var(--ink-3);
+  }
+
+.acx .trace li.done::before{ background: var(--ink); border-color: var(--ink); }
+
+.acx .trace li.now::before{
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139,58,46,.14);
+  }
+
+.acx .trace li.pending::before{ background: var(--paper); border-style: dashed; }
+
+.acx .trace .t{
+    font-family: var(--num);
+    font-size: 10.5px;
+    color: var(--ink-4);
+    letter-spacing: 0.06em;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+.acx .trace .what{ color: var(--ink); font-size: 13px; }
+
+.acx .trace li.pending .what{ color: var(--ink-4); }
+
+/* 多阶段反馈 */
+.acx .stages{ margin: 4px 0; }
+
+.acx .stages .stage{
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px dotted var(--rule);
+    font-size: 14.5px;
+  }
+
+.acx .stages .stage .mark{ width: 14px; flex: 0 0 14px; display: flex; }
+
+.acx .stages .stage.done .mark::before{ content: "✓"; color: var(--ink); font-size: 13px; }
+
+.acx .stages .stage.now .mark::before{
+    content: "";
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    align-self: center;
+    box-shadow: 0 0 0 3px rgba(139,58,46,.18);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+@keyframes pulse {
+    0%, 100%{ box-shadow: 0 0 0 3px rgba(139,58,46,.18); }
+    50%{ box-shadow: 0 0 0 6px rgba(139,58,46,.06); }
+  }
+
+.acx .stages .stage.wait .mark::before{ content: "·"; color: var(--ink-4); }
+
+.acx .stages .stage.done .what{ color: var(--ink-3); }
+
+.acx .stages .stage.now .what{ color: var(--ink); font-weight: 500; }
+
+.acx .stages .stage.wait .what{ color: var(--ink-4); }
+
+.acx .stages .stage .what .code{
+    font-family: var(--num);
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-left: 8px;
+  }
+
+/* 列表（我的稿件） */
+.acx .item-list{ margin: 8px 0 0; }
+
+.acx .item{
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 14px;
+    cursor: pointer;
+  }
+
+.acx .item .t1{
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 16px;
+    margin-bottom: 4px;
+    letter-spacing: 0.02em;
+  }
+
+.acx .item .t2{
+    font-family: var(--num);
+    font-size: 11px;
+    color: var(--ink-4);
+    letter-spacing: 0.08em;
+  }
+
+.acx .item .right{
+    text-align: right;
+    flex: 0 0 auto;
+  }
+
+.acx .item .right .st{
+    font-size: 12.5px;
+    color: var(--ink-2);
+    display: flex; align-items: center; gap: 6px;
+    justify-content: flex-end;
+  }
+
+.acx .item .right .st .d{ width: 6px; height: 6px; border-radius: 50%; }
+
+.acx .item .right .st.pend .d{ background: transparent; border: 1px solid var(--ink-3); }
+
+.acx .item .right .st.active .d{ background: var(--accent); }
+
+.acx .item .right .st.rej .d{ background: transparent; border: 1px solid var(--ink-2); }
+
+.acx .item .right .st.rev .d{ background: var(--accent); }
+
+.acx .item .right .time{
+    font-family: var(--num);
+    font-size: 10.5px;
+    color: var(--ink-4);
+    margin-top: 4px;
+    letter-spacing: 0.04em;
+  }
+
+/* 主卡：开始新投稿 */
+.acx .new-card{
+    border: 1px solid var(--ink);
+    padding: 22px 18px;
+    margin-bottom: 28px;
+    background: var(--paper);
+    cursor: pointer;
+    position: relative;
+  }
+
+.acx .new-card .ttl{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 19px;
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+.acx .new-card .desc{
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.65;
+  }
+
+.acx .new-card .arrow{
+    position: absolute;
+    right: 18px; top: 22px;
+    font-family: var(--num);
+    color: var(--ink);
+    font-size: 18px;
+  }
+
+/* 进入页 */
+.acx .landing{
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 28px 32px;
+    background: var(--paper);
+    cursor: pointer;
+    position: relative;
+  }
+
+.acx .landing .brand-mark{
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.5em;
+    color: var(--ink);
+    padding-top: 8px;
+    text-align: center;
+  }
+
+.acx .landing .illu{
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px 0;
+  }
+
+.acx .landing .ctas{
+    flex: 0 0 auto;
+  }
+
+.acx .landing h1{
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1.28;
+    letter-spacing: 0.02em;
+    margin: 0 0 12px;
+    color: var(--ink);
+  }
+
+.acx .landing .tag{
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.7;
+    margin: 0 0 26px;
+    letter-spacing: 0.02em;
+  }
+
+.acx .landing .guest{
+    text-align: center;
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    letter-spacing: 0.02em;
+  }
+
+.acx .landing .guest button{
+    background: transparent; border: 0;
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 0.5px;
+    text-decoration-color: var(--ink-3);
+    font: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+
+.acx .landing .enter-hint{
+    margin-top: 22px;
+    font-family: var(--num);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: 8px;
+  }
+
+.acx .landing .enter-hint .mk{
+    color: var(--accent);
+    font-size: 16px;
+    animation: heartbeat 2.2s ease-in-out infinite;
+  }
+
+/* 链接 */
+.acx .tlink{
+    background: transparent; border: 0; padding: 0;
+    color: var(--ink-2);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 0.5px;
+    text-decoration-color: var(--ink-3);
+    cursor: pointer;
+  }
+
+.acx .tlink:hover{ color: var(--ink); }
+
+/* 出场动效（用于 screen 切换） */
+.acx .fade-in{ animation: fadeIn .26s ease-out; }
+
+@keyframes fadeIn {
+    from{ opacity: 0; transform: translateY(4px); }
+    to  { opacity: 1; transform: translateY(0); }
+  }
+
+/* 输入容器对齐 */
+.acx .group{ display: flex; flex-direction: column; gap: 4px; }
+
+/* "下一页" 行的辅助文案 */
+.acx .next-help{
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--ink-4);
+    margin-top: 12px;
+    letter-spacing: 0.06em;
+  }
+
+/* ───────── 底部 Tab bar（读者/作者合并入口） ───────── */
+.acx .tabbar{
+    flex: 0 0 auto;
+    display: flex;
+    border-top: 1px solid var(--rule);
+    background: var(--paper);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+.acx .app.warm .tabbar{ background: var(--paper-warm); }
+
+.acx .tab-item{
+    flex: 1;
+    background: transparent; border: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 10px 0 8px;
+    cursor: pointer;
+    color: var(--ink-4);
+  }
+
+.acx .tab-item .tab-dot{
+    width: 5px; height: 5px; border-radius: 50%;
+    background: transparent;
+  }
+
+.acx .tab-item.on{ color: var(--ink); }
+
+.acx .tab-item.on .tab-dot{ background: var(--accent); }
+
+.acx .tab-label{
+    font-family: var(--sans);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+  }
+
+/* ───────── "我的" 页面行 ───────── */
+.acx .profile-group{
+    border-top: 1px solid var(--rule);
+  }
+
+.acx .profile-row{
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 15px 2px;
+    border-bottom: 1px solid var(--rule);
+    cursor: pointer;
+    font-size: 14.5px;
+  }
+
+.acx .pr-label{ color: var(--ink); }
+
+.acx .pr-value{
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--num);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+  }
+
+.acx .pr-value.accent{ color: var(--accent); font-family: var(--sans); }
+
+.acx .pr-arrow{ color: var(--ink-4); font-size: 15px; margin-left: 2px; }
+
+.acx .profile-row.author-center{
+    background: var(--paper-soft);
+    margin: 0 -22px; padding: 15px 22px;
+  }
+
+.acx .avatar-slot{ flex: 0 0 auto; border-radius: 50%; overflow: hidden; }
+
+
+/* ── 生产集成层：作者中心以全屏浮层覆盖 UserApp（含底部 Tab 栏），
+ *    Tab 栏代码零改动，仅被视觉遮住；退出浮层即恢复。 ── */
+.acx-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  background: #E4E9E9;
+}
+.acx{
+  width: 100%;
+  max-width: 480px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  overflow: hidden;
+}
