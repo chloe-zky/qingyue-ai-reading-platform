@@ -1,0 +1,169 @@
+/* MineTab.css — “我的”页。
+ * 令牌与行样式取自《作者端交付说明.md》第 1 节及原型 .profile-* 规则，
+ * 全部作用域收在 .minetab-root 之内，不外泄到 Tab 栏或其他页面。
+ * 字体只用系统兜底栈，不依赖 Web Font。 */
+
+.minetab-root {
+  /* ── 设计令牌（局部变量，避免污染全局） ── */
+  --mt-paper:      #FCFCFB;
+  --mt-paper-soft: #F5F6F5;
+  --mt-ink:        #1E2A2E;
+  --mt-ink-2:      #4A5A60;
+  --mt-ink-3:      #7C8B90;
+  --mt-ink-4:      #AFBBBF;
+  --mt-rule:       #E4E7E6;
+  --mt-accent:     #8B3A2E;
+  --mt-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+             "Source Han Sans SC", "Noto Sans SC", "HarmonyOS Sans SC", "MiSans",
+             "Microsoft YaHei", Arial, sans-serif;
+  --mt-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --mt-num:  "EB Garamond", "Source Serif Pro", Georgia, serif;
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--mt-paper);
+  color: var(--mt-ink);
+  font-family: var(--mt-sans);
+}
+
+/* 内容整屏垂直居中、重心略偏上（paddingBottom 偏移把重心上提）。 */
+.minetab-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 22px 14%;
+  animation: minetab-fade 0.24s ease-out;
+}
+
+@keyframes minetab-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 身份区：头像 + 笔名 + 读者天数 ── */
+.minetab-id {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0 24px;
+}
+
+.minetab-avatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--mt-paper-soft);
+  border: 1px solid var(--mt-rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mt-serif);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--mt-ink-3);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.minetab-id-text { min-width: 0; }
+
+.minetab-name {
+  font-family: var(--mt-serif);
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--mt-ink);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.minetab-days {
+  font-family: var(--mt-num);
+  font-size: 11.5px;
+  color: var(--mt-ink-3);
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+
+/* ── 条目列 ── */
+.minetab-group {
+  border-top: 1px solid var(--mt-rule);
+}
+
+.minetab-row {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--mt-rule);
+  padding: 15px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease;
+}
+.minetab-row:active { opacity: 0.82; }
+
+.minetab-row-label { color: var(--mt-ink); }
+
+.minetab-row-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mt-ink-3);
+  font-family: var(--mt-num);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.minetab-row-value.is-accent {
+  color: var(--mt-accent);
+  font-family: var(--mt-sans);
+}
+
+.minetab-row-arrow {
+  color: var(--mt-ink-4);
+  font-size: 15px;
+  margin-left: 2px;
+}
+
+/* 作者中心：仅以点睛色文字（投稿 · 查询）指向，不加浅底强调，
+ * 背景与其它条目一致（见 .minetab-row-value.is-accent）。 */
+
+/* ── 作者中心子视图：返回条 + 内嵌 AuthorPage ── */
+.minetab-subnav {
+  flex-shrink: 0;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 22px 6px;
+  border-bottom: 1px solid var(--mt-rule);
+  background: var(--mt-paper);
+}
+
+.minetab-back {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--mt-ink-3);
+  letter-spacing: 0.02em;
+  padding: 4px 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.minetab-back::before { content: "← "; font-family: var(--mt-num); }
+.minetab-back:active { color: var(--mt-ink); }
+
+.minetab-embed {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}

@@ -1,0 +1,130 @@
+/* LandingPage.css — quiet, literary, mobile-first entry. */
+
+.landing-root {
+  width: 100%;
+  min-height: 100svh;
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+  color: #15171c;
+}
+
+.landing-frame {
+  width: 100%;
+  max-width: 480px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  position: relative;
+}
+
+/* ── Hero ───────────────────────────────────────────── */
+.landing-hero {
+  position: relative;
+  width: 100%;
+  height: 58vh;
+  min-height: 360px;
+  background-size: cover;
+  background-position: center;
+  background-color: #d8d2c4; /* fallback if image missing */
+}
+
+.landing-hero-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(20, 18, 14, 0.05) 0%,
+    rgba(20, 18, 14, 0.0)  35%,
+    rgba(255, 255, 255, 0.0) 60%,
+    rgba(255, 255, 255, 1.0) 100%
+  );
+}
+
+/* ── Body ───────────────────────────────────────────── */
+.landing-body {
+  flex: 1;
+  padding: 0 28px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: -40px;       /* climb up into the veil */
+  position: relative;
+  z-index: 1;
+}
+
+.landing-eyebrow {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  color: #7e828a;
+  margin-bottom: 14px;
+}
+
+.landing-title {
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", serif;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  margin: 0 0 14px;
+  color: #15171c;
+  line-height: 1.2;
+}
+
+.landing-tagline {
+  font-size: 15px;
+  font-weight: 300;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  color: #4b505a;
+  margin: 0 0 36px;
+}
+
+/* ── Actions ────────────────────────────────────────── */
+.landing-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.landing-btn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: opacity 200ms ease, background 200ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.landing-btn-primary {
+  background: #15171c;
+  color: #ffffff;
+  border: 1px solid #15171c;
+}
+.landing-btn-primary:hover { opacity: 0.88; }
+
+.landing-btn-ghost {
+  background: transparent;
+  color: #15171c;
+  border: 1px solid #15171c;
+}
+.landing-btn-ghost:hover { background: rgba(21, 23, 28, 0.04); }
+
+/* ── (removed) Visible studio entry ─────────────────────
+   编辑 / 管理员入口不再以可见按钮暴露在普通用户端。
+   通过 URL `?mode=studio` / `#studio` 或 eyebrow 5 连击隐藏入口进入。 */
+
+/* Make the eyebrow tappable without giving away that it's interactive. */
+.landing-eyebrow {
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}

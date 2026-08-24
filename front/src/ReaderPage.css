@@ -1,0 +1,138 @@
+/*
+ * ReaderPage.css — scoped styles for the reader UI.
+ * All rules use the .reader- prefix to avoid leaking into other pages.
+ *
+ * Optional: add Noto Serif SC to index.html for Windows/Android fallback:
+ *   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@200;300;400;500;600&display=swap">
+ */
+
+/* ── Scrollbar hiding (reader screens only) ──────────────────────────────── */
+.reader-app-root *::-webkit-scrollbar { width: 0; height: 0; }
+
+/* ── Loading scan-line animation ─────────────────────────────────────────── */
+@keyframes reader-scan {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(212%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* ── TopInset variants ───────────────────────────────────────────────────── */
+
+/* Inside iOS device frame — matches drawn status bar height */
+.reader-top-inset-frame  { height: 56px; }
+
+/* Real mobile — respects system safe area (notch / Dynamic Island) */
+.reader-top-inset-mobile {
+  height: env(safe-area-inset-top, 0px);
+  min-height: 20px;
+}
+
+/* ── App root — shared container for screens ─────────────────────────────── */
+/*
+ * text-align:left and direction:ltr are defensive: many host projects set
+ * text-align:center on #root (Vite default) or App, which silently centers
+ * every <div> inside the reader unless we override it here.
+ */
+.reader-app-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  direction: ltr;
+}
+.reader-app-root,
+.reader-app-root * {
+  text-align: inherit;
+}
+
+/* ── Mobile: full-screen wrapper ─────────────────────────────────────────── */
+.reader-mobile-wrapper {
+  position: fixed;
+  inset: 0;
+  /* Safe-area padding so nav/content clears the system status bar */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
+  text-align: left;
+  direction: ltr;
+}
+
+/* ── Desktop: preview canvas ─────────────────────────────────────────────── */
+.reader-preview-wrapper {
+  min-height: 100vh;
+  background: #EFEAE0;
+  padding: 64px 32px 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+}
+
+.reader-preview-header {
+  max-width: 560px;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.reader-preview-eyebrow {
+  font-size: 10px;
+  font-weight: 300;
+  color: #1F2A5C;
+  letter-spacing: 0.3em;
+}
+
+.reader-preview-title {
+  margin-top: 14px;
+  font-size: 22px;
+  font-weight: 300;
+  color: #1F1D1A;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.reader-preview-desc {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 300;
+  color: #5C5852;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+}
+
+.reader-preview-footer {
+  margin-top: 28px;
+  font-size: 10px;
+  font-weight: 300;
+  color: #9B968C;
+  letter-spacing: 0.06em;
+  line-height: 1.8;
+}
+
+/* ── Feedback input placeholder colour ───────────────────────────────────── */
+.reader-feedback-input::placeholder {
+  color: #9CA0A8;
+  opacity: 1;
+}
+
+/* ── Global button reset inside reader ───────────────────────────────────── */
+.reader-app-root button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * ── Responsive guard: on small screens the preview chrome hides itself ──────
+ *
+ * Viewport < 769px  → ReaderPage renders .reader-mobile-wrapper (no frame).
+ * This CSS is a belt-and-suspenders fallback in case JS hydration is slow.
+ */
+@media (max-width: 768px) {
+  .reader-preview-wrapper {
+    padding: 0;
+    background: transparent;
+    min-height: unset;
+  }
+  .reader-preview-header,
+  .reader-preview-footer {
+    display: none;
+  }
+}
