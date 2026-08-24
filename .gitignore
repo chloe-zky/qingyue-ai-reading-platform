@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Frontend
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local collaboration and generated artifacts
+.agents/
+.claude/
+.codex/
+.codex-ppt-work/
+*.ndjson
+*.pptx
