@@ -1,0 +1,148 @@
+/* HomeTab.css — quiet daily atmosphere page. */
+
+.hometab-root {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Top padding keeps the 28px design gap below the iOS status bar.
+     env(safe-area-inset-top) returns ~47px on notched iPhones, 0 elsewhere. */
+  padding: calc(28px + env(safe-area-inset-top, 0px)) 24px 32px;
+  display: flex;
+  flex-direction: column;
+  color: #15171c;
+  /* Soft rise-in on enter — fade + slight upward slide. */
+  animation: hometab-rise 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes hometab-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Subtle inner cascade so cover / quote / cta feel like they each
+   settle into place, not all snap together. */
+.hometab-eyebrow     { animation: hometab-rise 520ms 60ms  cubic-bezier(0.22,0.61,0.36,1) both; }
+.hometab-cover       { animation: hometab-rise 600ms 120ms cubic-bezier(0.22,0.61,0.36,1) both; }
+.hometab-quote-block { animation: hometab-rise 600ms 200ms cubic-bezier(0.22,0.61,0.36,1) both; }
+.hometab-actions     { animation: hometab-rise 600ms 280ms cubic-bezier(0.22,0.61,0.36,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hometab-root,
+  .hometab-eyebrow,
+  .hometab-cover,
+  .hometab-quote-block,
+  .hometab-actions { animation: none; }
+}
+
+.hometab-eyebrow {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  color: #7e828a;
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.hometab-cover {
+  width: 100%;
+  height: 380px;
+  background-size: cover;
+  background-position: center;
+  background-color: #d8d2c4;
+  border-radius: 8px;
+  margin-bottom: 28px;
+  box-shadow: 0 8px 20px -8px rgba(20, 18, 14, 0.12);
+}
+
+/* Quote block — open 「 hangs at top-left (outside text column),
+   text column is indented inward to the right, close 」 hangs at
+   bottom-right. The whole composition gives a soft "wrap" feel. */
+/* Quote block — open 「 hangs at top-left (outside text column),
+   text column is indented inward to the right, source line is
+   right-aligned to close the composition asymmetrically. */
+.hometab-quote-block {
+  position: relative;
+  padding: 6px 4px 22px 14px;
+  margin-bottom: 22px;
+}
+
+.hometab-quote-mark {
+  position: absolute;
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", serif;
+  font-size: 30px;
+  font-weight: 300;
+  color: #1f2a5c;
+  opacity: 0.55;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hometab-quote-mark-open {
+  top:  -6px;
+  left: -10px;        /* hang outside the text column to the left */
+}
+
+.hometab-quote {
+  font-family: "PingFang SC", -apple-system, "Helvetica Neue", serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.95;
+  letter-spacing: 0.04em;
+  color: #15171c;
+  margin: 0 4px 10px 26px;
+}
+
+.hometab-source {
+  margin-right: 4px;
+  /* !important needed because App.css has `.app-shell * { text-align: inherit }`
+     as a host-pollution defense; without !important the source line keeps
+     inheriting the .app-shell `text-align: left`. This rule only touches
+     alignment — spacing, color, font, weight are unchanged. */
+  text-align: right !important;
+  font-size: 11.5px;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  color: #7e828a;
+}
+
+/* Click affordance for cover & quote when we have a real pick. */
+.hometab-cover.is-clickable,
+.hometab-quote.is-clickable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Reading overlay host — fills the userapp content area so ReadingScreen's
+   absolutely-positioned children (PaperBg, nav) anchor correctly and the
+   bottom tab bar stays visible above. */
+.hometab-reading-host {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.hometab-actions {
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 14px;
+}
+
+.hometab-cta {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #15171c;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  color: #15171c;
+  padding: 8px 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.hometab-cta:hover { color: #1f2a5c; border-color: #1f2a5c; }
+
+/* .hometab-footer removed — no longer rendered */
