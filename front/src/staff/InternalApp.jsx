@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import StaffAuthProvider from '../auth/StaffAuthProvider';
+import StaffPasswordSetup from '../auth/StaffPasswordSetup';
 import ProtectedRoute from '../auth/ProtectedRoute';
 import { AUTH_STATUS, useStaffAuth } from '../auth/staffAuth';
 import { onUnauthorized } from '../lib/apiClient';
@@ -37,6 +38,12 @@ const PAGES = {
   overview: PlatformOverview, llm: LLMConfig, staff: StaffAccounts, health: SystemHealth, logs: TechnicalLogs,
   eoverview: EditorialOverview, prompt: PromptManager, tags: TagVocabulary, reco: RecommendationStrategy, sim: StrategySimulator, editLogs: EditorialAuditLogs,
   review: ReviewWorkspace, myReviews: MyReviewHistory,
+};
+
+const ROLE_PATHS = {
+  admin: '/studio/platform',
+  lead: '/studio/editorial',
+  review: '/studio/review',
 };
 
 // 与项目既有约定一致（EditorPage 也用 820px）：≤820 视为手机端。
@@ -158,7 +165,7 @@ function DesktopWorkbench({ ctx, view, setView, role, staff, signOut }) {
 }
 
 function InternalShell() {
-  const { status, staff, signOut } = useStaffAuth();
+  const { status, staff, signOut, authAction } = useStaffAuth();
   const isMobile = useIsMobile();
   const role = staff ? ROLE_FROM_BACKEND[staff.role] : null;
 
@@ -176,6 +183,13 @@ function InternalShell() {
   const wasAuthed = useRef(false);
   useEffect(() => { wasAuthed.current = status === AUTH_STATUS.AUTHENTICATED; }, [status]);
   useEffect(() => onUnauthorized(() => { if (wasAuthed.current) setExpired(true); }), []);
+  useEffect(() => {
+    if (!role || authAction || status !== AUTH_STATUS.AUTHENTICATED) return;
+    const target = ROLE_PATHS[role];
+    if (target && window.location.pathname !== target) {
+      window.history.replaceState({}, '', target);
+    }
+  }, [authAction, role, status]);
 
   const confirm = useCallback((opts) => new Promise((resolve) => {
     setConfirmNote('');
@@ -203,9 +217,25 @@ function InternalShell() {
     },
   }), [push, confirm, isMobile, role]);
 
-  const doSignOut = () => { setView(null); setTab('home'); setReviewOpen(false); signOut(); };
+  const doSignOut = () => {
+    setView(null);
+    setTab('home');
+    setReviewOpen(false);
+    window.history.replaceState({}, '', '/studio/login');
+    signOut();
+  };
   const activeView = view ?? (role ? HOME[role] : null);
   const theme = role === 'lead' ? 'theme-lit' : 'theme-tech';
+
+  // 邀请与找回密码均先走统一设密页；完成后 Provider 会清理回调 URL，
+  // 再按后端返回的真实角色进入对应工作台。
+  if (authAction) {
+    return (
+      <div className={(isMobile ? 'ibx-m ' : 'ibx ') + 'theme-lit'}>
+        <StaffPasswordSetup mobile={isMobile} />
+      </div>
+    );
+  }
 
   // 完整审稿页保留在同一个 StaffAuthProvider 内，不再跳转到旧共享 Token 入口。
   // EditorPage 只复用呈现和稿件状态机；所有请求通过统一 apiClient 携带 Bearer。

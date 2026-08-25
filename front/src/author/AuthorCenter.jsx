@@ -6,6 +6,7 @@
 // 数据为前端对接：递交为原型同款三段可见反馈 + 编号逐字符 reveal（真实后端接入见 submit()）。
 
 import { useCallback, useState, useEffect } from 'react';
+import { apiFetch } from '../lib/apiClient';
 import { FlyingBirds } from './decor';
 import {
   TopNav, BackBtn, RightLink, ProgressDots, Field, TextField, AreaField,
@@ -15,16 +16,29 @@ import {
 } from './ui';
 import './author.css';
 
-const API_BASE = `http://${window.location.hostname}:8000`;
-
 const emptyForm = () => ({
   title: '', author: '',
   intro: '', sample: '',
   bodyMode: 'write', body: '',
   attachment: null,
+  revisionReference: '',
 });
 
 const DRAFT_KEY = 'author_draft_v1';
+const RECEIPTS_KEY = 'author_secure_receipts_v1';
+const loadReceipts = () => {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECEIPTS_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((item) => typeof item === 'string').slice(0, 50) : [];
+  } catch { return []; }
+};
+const rememberReceipt = (reference) => {
+  if (!reference) return;
+  try {
+    const next = [reference, ...loadReceipts().filter((item) => item !== reference)].slice(0, 50);
+    localStorage.setItem(RECEIPTS_KEY, JSON.stringify(next));
+  } catch { /* ignore */ }
+};
 const loadDraft = () => {
   try {
     const s = localStorage.getItem(DRAFT_KEY);
@@ -176,7 +190,7 @@ function ScreenHome({ user, manuscripts, loading, error, onRefresh, onStartNew, 
           )}
           <GentleNote>
             尚未投出去的草稿会自动留在本机。<br/>
-            已递交稿件会从编辑部实时取回。
+            已递交稿件凭本机保存的安全回执从编辑部实时取回。
           </GentleNote>
         </div>
       </div>
@@ -486,7 +500,7 @@ function ScreenReceipt({ form, submission, onHome, onQuery }) {
             {bookId}
           </div>
           <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: '8px 0 22px', lineHeight: 1.7 }}>
-            凭此编号，可随时回来查询进展。
+            这是包含私密凭证的完整安全编号，请勿公开分享；凭此可查询和递交修订稿。
           </p>
 
           <div className="btn-row" style={{ marginBottom: 10 }}>
@@ -511,9 +525,9 @@ function ScreenQueryEntry({ querying, error, onBack, onQuery }) {
       <div className="scroll">
         <div className="page" style={{ paddingTop: 14 }}>
           <h2>查 询</h2>
-          <p className="sub">输入稿件编号，看看进展。</p>
+          <p className="sub">粘贴回执上的完整安全编号，看看进展。</p>
           <Field label="No. · 稿件编号" hint="不区分大小写">
-            <input className="val" placeholder="例如：BR-128" value={code} onChange={(e) => setCode(e.target.value)} />
+            <input className="val" placeholder="例如：BR-128-安全凭证" value={code} onChange={(e) => setCode(e.target.value)} />
           </Field>
           <div style={{ height: 10 }} />
           {error && <GentleNote accent>{error}</GentleNote>}
@@ -643,20 +657,38 @@ export default function AuthorCenter({ onExit, userName = '江南' }) {
     go('s1');
   };
 
+  const startRevision = (article) => {
+    const f = {
+      ...emptyForm(),
+      title: article.title || '',
+      author: article.author || userName,
+      intro: article.intro || '',
+      sample: article.sample || '',
+      body: article.full_content || '',
+      revisionReference: article.reference_code || '',
+    };
+    _setForm(f);
+    setSubmission(null); setSubmitError(''); setDocumentError('');
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(f)); } catch { /* ignore */ }
+    go('s1');
+  };
+
   const loadManuscripts = useCallback(async () => {
     setListLoading(true);
     setListError('');
     try {
-      const res = await fetch(`${API_BASE}/api/author/articles?author=${encodeURIComponent(userName)}&limit=20`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || '暂时无法读取稿件列表。');
+      const data = await apiFetch('/api/author/article-statuses', {
+        method: 'POST',
+        auth: false,
+        body: { references: loadReceipts() },
+      });
       setManuscripts((data.articles || []).map(manuscriptView));
     } catch (err) {
       setListError(err.message || '暂时无法读取稿件列表。');
     } finally {
       setListLoading(false);
     }
-  }, [userName]);
+  }, []);
 
   const chooseDocument = async (fileInfo) => {
     setDocumentError('');
@@ -664,9 +696,9 @@ export default function AuthorCenter({ onExit, userName = '江南' }) {
     try {
       const body = new FormData();
       body.append('file', fileInfo.rawFile);
-      const res = await fetch(`${API_BASE}/api/author/manuscript-text`, { method: 'POST', body });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || 'Word 文档读取失败。');
+      const data = await apiFetch('/api/author/manuscript-text', {
+        method: 'POST', auth: false, body,
+      });
       setForm({
         ...form,
         bodyMode: 'upload',
@@ -695,14 +727,14 @@ export default function AuthorCenter({ onExit, userName = '江南' }) {
         intro: form.intro.trim(),
         sample: form.sample.trim(),
         full_content: form.body.trim(),
+        revision_reference: form.revisionReference || undefined,
       };
-      const res = await fetch(`${API_BASE}/api/author/articles`, {
+      const data = await apiFetch('/api/author/articles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        auth: false,
+        body: payload,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || '稿件递交失败，请稍后重试。');
+      rememberReceipt(data.reference_code);
       setSubmission({ ...data, submitted_at: new Date().toISOString() });
       go('submitting');
     } catch (err) {
@@ -717,9 +749,11 @@ export default function AuthorCenter({ onExit, userName = '江南' }) {
     setQuerying(true);
     setQueryError('');
     try {
-      const res = await fetch(`${API_BASE}/api/author/articles/${encodeURIComponent(reference)}/status`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || '暂时无法查询稿件。');
+      const data = await apiFetch(
+        `/api/author/articles/${encodeURIComponent(reference)}/status`,
+        { auth: false },
+      );
+      rememberReceipt(data.reference_code);
       setQueryArticle(data);
       if (navigate) go('q1');
     } catch (err) {
@@ -768,7 +802,7 @@ export default function AuthorCenter({ onExit, userName = '江南' }) {
   } else if (screen === 'q0') {
     body = <ScreenQueryEntry querying={querying} error={queryError} onBack={() => go('home')} onQuery={queryStatus} />;
   } else if (screen === 'q1' && queryArticle) {
-    body = <ScreenQueryResult article={queryArticle} querying={querying} queryError={queryError} onBack={() => go('q0')} onRetry={() => queryStatus(queryArticle.reference_code, false)} onResubmit={startNew} />;
+    body = <ScreenQueryResult article={queryArticle} querying={querying} queryError={queryError} onBack={() => go('q0')} onRetry={() => queryStatus(queryArticle.reference_code, false)} onResubmit={() => startRevision(queryArticle)} />;
   }
 
   return (

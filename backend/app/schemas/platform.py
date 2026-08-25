@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -63,3 +63,9 @@ class InviteStaffResponse(BaseModel):
     message: str
     staff: StaffAccountResponse
 
+
+class StorageHealthResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    bucket: str
+    latency_ms: int = Field(ge=0)
+    message: str

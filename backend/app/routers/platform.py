@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import logging
+from datetime import datetime, timedelta, timezone
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -7,6 +11,7 @@ from app.schemas.platform import (
     InviteStaffResponse,
     StaffAccountResponse,
     StaffListResponse,
+    StorageHealthResponse,
     UpdateStaffRequest,
 )
 from app.services.audit_service import write_audit_log
@@ -15,6 +20,8 @@ from app.services.audit_service import list_audit_logs
 from app.services.platform_service import (
     StaffAccountConflictError,
     StaffAccountNotFoundError,
+    StorageHealthError,
+    check_storage_health,
     invite_staff_account,
     list_staff_accounts,
     update_staff_account,
@@ -26,14 +33,39 @@ router = APIRouter(prefix="/api/platform", tags=["Platform"])
 logger = logging.getLogger(__name__)
 
 
+@router.get("/storage-health", response_model=StorageHealthResponse)
+def get_storage_health(
+    principal: StaffPrincipal = Depends(require_platform_admin),
+) -> StorageHealthResponse:
+    try:
+        return StorageHealthResponse(**check_storage_health())
+    except StorageHealthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception:
+        logger.exception("检查文件存储状态失败")
+        raise HTTPException(status_code=500, detail="文件存储检查失败，请稍后重试。")
+
+
 @router.get("/audit-logs", response_model=list[AuditLogResponse])
 def get_platform_audit_logs(
+    q: Optional[str] = Query(default=None, max_length=100),
+    result: Optional[Literal["success", "failure"]] = Query(default=None),
+    domain: Optional[Literal["platform", "auth", "security"]] = Query(default=None),
+    hours: int = Query(default=24, ge=1, le=744),
     limit: int = Query(default=100, ge=1, le=500),
     principal: StaffPrincipal = Depends(require_platform_admin),
 ):
     try:
         return list_audit_logs(
-            domains=["platform", "auth", "security"], limit=limit
+            domains=[domain] if domain else ["platform", "auth", "security"],
+            search=q,
+            result=result,
+            created_after=(
+                datetime.now(timezone.utc) - timedelta(hours=hours)
+                if hours
+                else None
+            ),
+            limit=limit,
         )
     except Exception:
         logger.exception("读取平台审计日志失败")

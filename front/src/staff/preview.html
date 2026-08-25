@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>轻阅读 · 内部后台 · 开发预览</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- 与 front/index.html 保持同一份字体声明（四份原型的字重并集）。 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      html, body, #staff-preview-root { height: 100%; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <!--
+      仅供开发期走查内部后台，不参与生产构建
+      （vite build 的入口是 front/index.html，不会包含本文件）。
+      字体按原型 <head> 引入 Noto Sans SC / Noto Serif SC / EB Garamond / JetBrains Mono；
+      生产挂载时应把同样的字体链接加到 front/index.html，否则 --num / --mono 会回退到系统字。
+    -->
+    <div id="staff-preview-root"></div>
+    <script type="module" src="./preview.jsx"></script>
+  </body>
+</html>

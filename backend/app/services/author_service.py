@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from io import BytesIO
+import hashlib
 from pathlib import Path
+import secrets
 from typing import Union
 from zipfile import BadZipFile, ZipFile
 import xml.etree.ElementTree as ET
@@ -11,7 +15,34 @@ from app.services.gemini_service import extract_tags_for_book
 
 MAX_MANUSCRIPT_BYTES = 20 * 1024 * 1024
 MAX_EXTRACTED_XML_BYTES = 8 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 100
+MAX_DOCX_ENTRIES = 2048
+UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 DOCX_WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+class AuthorReceiptError(ValueError):
+    pass
+
+
+class AuthorSubmissionStateConflictError(ValueError):
+    pass
+
+
+async def read_manuscript_upload(file) -> bytes:
+    """Read at most the accepted DOCX size instead of buffering an unbounded body."""
+    chunks = []
+    size = 0
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > MAX_MANUSCRIPT_BYTES:
+            raise ValueError("Word 文档超过 20MB，请压缩后重试。")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _clean_required(value: str, label: str) -> str:
@@ -21,17 +52,23 @@ def _clean_required(value: str, label: str) -> str:
     return cleaned
 
 
-def _reference_code(book_id: int) -> str:
-    return f"BR-{book_id}"
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _parse_reference(reference: Union[str, int]) -> int:
-    raw = str(reference).strip().upper()
-    if raw.startswith("BR-"):
-        raw = raw[3:]
-    if not raw.isdigit():
-        raise ValueError("稿件编号格式不正确，请输入回执中的 BR-数字 编号。")
-    return int(raw)
+def _reference_code(book_id: int, token: str) -> str:
+    return f"BR-{book_id}-{token}"
+
+
+def _parse_reference(reference: Union[str, int]) -> tuple[int, str]:
+    raw = str(reference).strip()
+    parts = raw.split("-", 2)
+    if len(parts) != 3 or parts[0].upper() != "BR" or not parts[1].isdigit():
+        raise AuthorReceiptError("稿件编号格式不正确，请粘贴回执上的完整安全编号。")
+    token = parts[2].strip()
+    if len(token) < 20:
+        raise AuthorReceiptError("稿件编号格式不正确，请粘贴回执上的完整安全编号。")
+    return int(parts[1]), token
 
 
 def _normalise_status(status: str) -> str:
@@ -44,12 +81,12 @@ def _normalise_status(status: str) -> str:
     return "pending"
 
 
-def _article_summary(book: dict) -> dict:
+def _article_summary(book: dict, reference_code: str | None = None, *, include_content: bool = False) -> dict:
     book_id = int(book["id"])
     status = book.get("status", "pending_review")
-    return {
+    result = {
         "book_id": book_id,
-        "reference_code": _reference_code(book_id),
+        "reference_code": reference_code or f"BR-{book_id}-••••••••",
         "title": book.get("title", ""),
         "author": book.get("author", ""),
         "article_status": status,
@@ -57,7 +94,15 @@ def _article_summary(book: dict) -> dict:
         "submitted_at": book.get("created_at"),
         "editor_feedback": book.get("editor_feedback") or "",
         "reviewed_at": book.get("reviewed_at"),
+        "revision_no": book.get("current_revision_no", 1),
     }
+    if include_content:
+        result.update({
+            "intro": book.get("intro", ""),
+            "sample": book.get("sample", ""),
+            "full_content": book.get("full_content", ""),
+        })
+    return result
 
 
 def submit_article_for_author(article: AuthorArticleCreate) -> dict:
@@ -75,28 +120,51 @@ def submit_article_for_author(article: AuthorArticleCreate) -> dict:
         "status": "pending_review",
     }
 
-    # 编辑配图三件套——作者侧一律写空，即便前端传了 cover_image_url 也忽略。
-    cover_fields = {
-        "cover_image_url":    "",
-        "cover_photographer": "",
-        "cover_caption":      "",
-    }
-
-    # 兼容尚未做 ALTER TABLE 的旧库：第一次带配图三字段尝试插入，
-    # 若数据库报"列不存在"则回退到不带这些字段的基础 payload。
-    try:
-        res = supabase.table("books").insert({**data, **cover_fields}).execute()
-    except Exception as e:
-        msg = str(e).lower()
-        if any(k in msg for k in ("cover_image_url", "cover_photographer", "cover_caption")) \
-           and ("column" in msg or "schema" in msg or "not find" in msg or "does not exist" in msg):
-            res = supabase.table("books").insert(data).execute()
-        else:
+    if article.revision_reference:
+        book_id, token = _parse_reference(article.revision_reference)
+        try:
+            rpc = supabase.rpc("resubmit_author_article_secure", {
+                "p_book_id": book_id,
+                "p_token_hash": _token_hash(token),
+                "p_title": data["title"],
+                "p_author": data["author"],
+                "p_intro": data["intro"],
+                "p_sample": data["sample"],
+                "p_full_content": data["full_content"],
+            }).execute()
+        except Exception as error:
+            message = str(error).lower()
+            if "invalid author receipt" in message:
+                raise AuthorReceiptError("安全编号无效，请使用原投稿回执中的完整编号。") from error
+            if "not open for resubmission" in message:
+                raise AuthorSubmissionStateConflictError(
+                    "该稿件当前不能再次递交，请先等待编辑给出退修或退稿决定。"
+                ) from error
             raise
+        reference_code = article.revision_reference
+        message = "修订稿已递交，正在等待编辑复审。"
+    else:
+        token = secrets.token_urlsafe(24)
+        rpc = supabase.rpc("submit_author_article_secure", {
+            "p_title": data["title"],
+            "p_author": data["author"],
+            "p_intro": data["intro"],
+            "p_sample": data["sample"],
+            "p_full_content": data["full_content"],
+            "p_token_hash": _token_hash(token),
+        }).execute()
+        payload = rpc.data or {}
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        book_id = int(payload.get("book_id") or 0)
+        if not book_id:
+            raise ValueError("文章保存失败，请稍后重试。")
+        reference_code = _reference_code(book_id, token)
+        message = "作品已提交，正在等待编辑审核。"
 
-    if not res.data:
-        raise ValueError("文章保存失败，请稍后重试。")
-    book_id = res.data[0]["id"]
+    payload = rpc.data or {}
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
 
     tag_status = "draft"
     warning = ""
@@ -110,36 +178,42 @@ def submit_article_for_author(article: AuthorArticleCreate) -> dict:
         warning = "稿件已入库；AI 标签暂未生成，编辑仍可正常审阅。"
 
     return {
-        "message": "作品已提交，正在等待编辑审核。",
+        "message": message,
         "book_id": book_id,
-        "reference_code": _reference_code(book_id),
+        "reference_code": reference_code,
         "title": data["title"],
         "article_status": "pending_review",
         "display_status": "pending",
         "tag_status": tag_status,
+        "revision_no": int(payload.get("revision_no") or 1),
+        "submitted_at": payload.get("submitted_at"),
         "warning": warning,
     }
 
 
-def list_author_articles(author: str, limit: int = 20) -> list:
-    author_name = _clean_required(author, "作者 / 笔名")
-    safe_limit = max(1, min(limit, 50))
-    res = (
-        supabase.table("books")
-        .select("*")
-        .eq("author", author_name)
-        .order("id", desc=True)
-        .limit(safe_limit)
-        .execute()
-    )
-    return [_article_summary(book) for book in (res.data or [])]
+def list_author_articles(references: list[str]) -> list:
+    articles = []
+    for reference in references[:50]:
+        try:
+            articles.append(get_article_status(reference))
+        except ValueError:
+            continue
+    return sorted(articles, key=lambda item: item["book_id"], reverse=True)
 
 
 def get_article_status(reference: Union[str, int]) -> dict:
-    book_id = _parse_reference(reference)
-    res = supabase.table("books").select("*").eq("id", book_id).execute()
+    book_id, token = _parse_reference(reference)
+    reference_code = _reference_code(book_id, token)
+    res = (
+        supabase.table("books")
+        .select("*")
+        .eq("id", book_id)
+        .eq("author_access_token_hash", _token_hash(token))
+        .limit(1)
+        .execute()
+    )
     if not res.data:
-        raise ValueError(f"找不到编号为 {_reference_code(book_id)} 的稿件")
+        raise AuthorReceiptError("找不到该稿件，请检查是否粘贴了完整安全编号。")
 
     book = res.data[0]
     status = book.get("status", "pending_review")
@@ -155,7 +229,7 @@ def get_article_status(reference: Union[str, int]) -> dict:
         display_message = f"您的稿件《{title}》正在等待审核。"
 
     return {
-        **_article_summary(book),
+        **_article_summary(book, reference_code, include_content=True),
         "display_message": display_message,
     }
 
@@ -171,12 +245,28 @@ def extract_docx_text(filename: str, file_bytes: bytes) -> dict:
 
     try:
         with ZipFile(BytesIO(file_bytes)) as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_DOCX_ENTRIES:
+                raise ValueError("DOCX 内部文件数量异常，请重新导出后上传。")
+            if sum(item.file_size for item in entries) > MAX_DOCX_UNCOMPRESSED_BYTES:
+                raise ValueError("DOCX 解压后体积过大，请精简文档后重试。")
             info = archive.getinfo("word/document.xml")
             if info.file_size > MAX_EXTRACTED_XML_BYTES:
                 raise ValueError("文档正文结构过大，请拆分或精简后重试。")
+            if info.flag_bits & 0x1:
+                raise ValueError("不支持加密 DOCX，请解除密码后重试。")
+            if info.file_size and (
+                info.compress_size <= 0
+                or info.file_size / info.compress_size > MAX_DOCX_COMPRESSION_RATIO
+            ):
+                raise ValueError("DOCX 压缩比异常，请重新导出后上传。")
             xml_bytes = archive.read(info)
     except (BadZipFile, KeyError):
         raise ValueError("无法读取该 DOCX，请确认文件未损坏且不是改后缀的旧版 DOC。")
+
+    upper_xml = xml_bytes.upper()
+    if b"<!DOCTYPE" in upper_xml or b"<!ENTITY" in upper_xml:
+        raise ValueError("DOCX 包含不安全的 XML 声明，请重新导出后上传。")
 
     try:
         root = ET.fromstring(xml_bytes)

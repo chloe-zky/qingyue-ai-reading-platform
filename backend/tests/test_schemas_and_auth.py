@@ -6,15 +6,24 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 
+from app.schemas.admin import UpdateLLMConfigRequest
 from app.schemas.editor import ApproveArticleRequest
+from app.schemas.editorial import (
+    PromptDraftRequest,
+    PromptTestRequest,
+    StrategyDraftRequest,
+    StrategySimulationRequest,
+)
 from app.schemas.feedback import FeedbackCreate
 from app.schemas.recommendation import UserPreferences
+from app.schemas.reader import ReaderProfileUpdate, ReadingProgressUpdate
 from app.utils.auth import (
     StaffPrincipal,
     StaffRole,
     get_current_staff,
     require_editorial_lead,
 )
+from app.utils.outbound_url import validate_llm_api_base
 
 
 class EditorSchemaTests(unittest.TestCase):
@@ -25,6 +34,52 @@ class EditorSchemaTests(unittest.TestCase):
     def test_rejects_oversized_tag(self):
         with self.assertRaises(ValidationError):
             ApproveArticleRequest(setting_tags=["x" * 41])
+
+    def test_prompt_draft_rejects_manuscript_body_variable(self):
+        with self.assertRaises(ValidationError):
+            PromptDraftRequest(
+                name="元数据打标",
+                system_prompt="只分析公开元数据",
+                user_prompt_template="正文：{{content}}",
+                variables=["content"],
+            )
+
+    def test_strategy_draft_requires_weights_to_total_100(self):
+        with self.assertRaises(ValidationError):
+            StrategyDraftRequest(
+                name="错误权重",
+                setting_weight=10,
+                story_tone_weight=20,
+                relationship_core_weight=30,
+            )
+
+    def test_prompt_test_rejects_manuscript_body_variable(self):
+        with self.assertRaises(ValidationError):
+            PromptTestRequest(
+                system_prompt="测试",
+                user_prompt_template="{{content}}",
+                variables=["content"],
+                title="标题",
+            )
+
+    def test_strategy_simulation_requires_a_preference(self):
+        with self.assertRaises(ValidationError):
+            StrategySimulationRequest(
+                setting_weight=15,
+                story_tone_weight=40,
+                relationship_core_weight=45,
+            )
+
+    def test_llm_base_requires_https(self):
+        with self.assertRaises(ValidationError):
+            UpdateLLMConfigRequest(
+                api_base="http://example.com/v1",
+                model_name="example-model",
+            )
+
+    def test_llm_base_rejects_private_literal(self):
+        with self.assertRaisesRegex(ValueError, "私网"):
+            validate_llm_api_base("https://127.0.0.1/v1", resolve_dns=False)
 
 
 class PublicSchemaTests(unittest.TestCase):
@@ -40,6 +95,16 @@ class PublicSchemaTests(unittest.TestCase):
                 book_title="测试作品",
                 reason="任意文本",
                 user_prefs={},
+            )
+
+    def test_reader_profile_update_requires_a_change(self):
+        with self.assertRaises(ValidationError):
+            ReaderProfileUpdate()
+
+    def test_active_reading_delta_is_bounded(self):
+        with self.assertRaises(ValidationError):
+            ReadingProgressUpdate(
+                progress_percent=20, active_seconds_delta=121
             )
 
 

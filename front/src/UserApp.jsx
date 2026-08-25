@@ -6,11 +6,12 @@
 //
 // Editor/Admin do NOT appear here. They live under StudioPage.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import HomeTab    from './HomeTab';
 import MineTab    from './MineTab';
 import ReaderPage from './ReaderPage';
 import './UserApp.css';
+import { useReaderAuth } from './reader/ReaderAuthContext';
 
 const TABS = [
   { key: 'home',     label: '首页', icon: HomeIcon },
@@ -19,7 +20,16 @@ const TABS = [
 ];
 
 export default function UserApp({ onExit }) {
+  const { session, loading } = useReaderAuth();
   const [tab, setTab] = useState('home');
+
+  useEffect(() => {
+    if (!loading && !session) onExit();
+  }, [loading, session, onExit]);
+
+  if (loading || !session) {
+    return <div className="userapp-root" style={{ display: 'grid', placeItems: 'center', color: '#777' }}>正在打开读者空间…</div>;
+  }
 
   return (
     <div className="userapp-root">

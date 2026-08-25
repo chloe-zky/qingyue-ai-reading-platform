@@ -45,6 +45,11 @@ export const AUTH_STATUS = {
   UNAVAILABLE: 'unavailable',
 };
 
+export const STAFF_AUTH_ACTION = {
+  INVITE: 'invite',
+  RECOVERY: 'recovery',
+};
+
 export const StaffAuthContext = createContext(null);
 
 export function useStaffAuth() {

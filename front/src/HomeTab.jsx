@@ -11,12 +11,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReadingScreen } from './reader/ReadingScreen.jsx';
 import { deriveTheme }   from './reader/themes.js';
 import { getHomePick }   from './homePickCache';
+import { useReaderAuth } from './reader/ReaderAuthContext';
 import './HomeTab.css';
 
 const FALLBACK_COVER = '/covers/cover-01.jpg';
 const WARM_KEY       = 'reader.warmMode.v1';   // 与 ReaderPage 共享一份护眼偏好
 
 export default function HomeTab({ onGoDiscover }) {
+  const { session } = useReaderAuth();
   const [pick,    setPick]    = useState(null);
   const [requestId, setRequestId] = useState('');
   const [loaded,  setLoaded]  = useState(false);
@@ -40,14 +42,16 @@ export default function HomeTab({ onGoDiscover }) {
     // 优先吃 LandingPage 阶段预拉好的缓存；若用户绕过了 LandingPage（例如
     // 直接进入 UserApp 的某种调试路径），getHomePick 会自己起一次 fetch。
     (async () => {
-      const { pick: p, requestId: fetchedRequestId } = await getHomePick();
+      const { pick: p, requestId: fetchedRequestId } = await getHomePick({
+        readerId: session?.user?.id || null,
+      });
       if (cancelled) return;
       if (p) setPick(p);
       setRequestId(fetchedRequestId || '');
       setLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [session]);
 
   const hasPick  = !!pick;
   const coverUrl = hasPick ? pick.cover_image_url : FALLBACK_COVER;

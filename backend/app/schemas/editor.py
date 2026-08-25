@@ -50,3 +50,9 @@ class ReviseArticleRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     note: str = Field(min_length=1, max_length=2000)
+
+
+class ReviewClaimResponse(BaseModel):
+    book_id: int
+    claimed: bool
+    expires_at: Optional[str] = None

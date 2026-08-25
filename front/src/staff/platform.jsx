@@ -1,15 +1,17 @@
 // platform.jsx — 平台管理员工作台（技术 · 湖蓝主题）
 // DOM / 类名 / 文案 / 内联样式逐字移植自 prototype-admin/platform.jsx。
 //
-// 员工、LLM 配置、审计日志与可用健康探针已接真实后端。
-// 尚无后端能力的上游 AI 测试、配置草稿、存储探针与 CSV 导出会明确提示，
-// 不再用设计稿模拟结果冒充线上数据。
+// 员工、LLM 配置与真实连接测试、审计日志、数据库及存储健康探针已接真实后端。
+// 尚无后端能力的配置草稿、邀请重发与安全记录会明确提示，
+// 不使用设计稿模拟结果冒充线上数据。
 
 import { useCallback, useEffect, useState } from 'react';
 import Icon from './shared/Icon';
 import { STAFF_STATUS } from './shared/constants';
-import { staffApi, errorMessage, formatDateTime, toUiStaff, toUiTechnicalLog } from './api';
+import { downloadCsv, staffApi, errorMessage, formatDateTime, toUiStaff, toUiTechnicalLog } from './api';
 import { Spin, RoleBadge, StatusBadge, MaskedSecretField, EmptyState, ErrorState, LoadingState } from './shared/ui';
+
+const INITIAL_TECH_LOG_FILTERS = { hours: '24', result: '', domain: '', q: '' };
 
 /* ── 1. 技术概览 ── */
 export function PlatformOverview({ ctx }) {
@@ -28,11 +30,14 @@ export function PlatformOverview({ ctx }) {
     ]);
     const items = accounts.staff || [];
     const recent = logs || [];
+    const lastAiTest = recent.find((item) => item.action === 'llm_config.test');
     setOverview({
       aiUp: Boolean(llm.configured),
       model: llm.model_name || '—',
       supabase: 'connected',
-      lastTest: '尚无连接测试接口',
+      lastTest: lastAiTest
+        ? `${lastAiTest.result === 'success' ? '成功' : '失败'} · ${formatDateTime(lastAiTest.created_at)}`
+        : '尚未进行真实连接测试',
       lastChange: recent[0]
         ? `${formatDateTime(recent[0].created_at)} · ${recent[0].summary || recent[0].action}`
         : '暂无配置变更',
@@ -58,7 +63,18 @@ export function PlatformOverview({ ctx }) {
     setTesting(true);
     try {
       const llm = await staffApi.llmStatus();
-      ctx.push(llm.configured ? 'AI 配置完整；真实连通测试端点尚未实现。' : 'AI 服务尚未完成配置。', llm.configured ? 'info' : 'err');
+      if (!llm.configured) {
+        ctx.push('AI 服务尚未完成配置。', 'err');
+        return;
+      }
+      const result = await staffApi.testLlm({
+        api_base: llm.api_base,
+        model_name: llm.model_name,
+        api_type: llm.api_type || 'openai_compatible',
+        timeout_seconds: Math.min(llm.timeout_seconds ?? 30, 60),
+      });
+      ctx.push(`AI 连接成功 · ${result.model_name} · ${result.latency_ms} ms`, 'ok');
+      await loadOverview();
     } catch (error) { ctx.push(errorMessage(error), 'err'); }
     finally { setTesting(false); }
   }
@@ -105,6 +121,8 @@ export function LLMConfig({ ctx }) {
   const [newKey, setNewKey] = useState('');
   const [masked, setMasked] = useState('');
   const [test, setTest] = useState(null); // null|testing|ok|fail
+  const [models, setModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -137,9 +155,49 @@ export function LLMConfig({ ctx }) {
   }, [loadConfig]);
 
   async function runTest() {
-    setTest(null);
-    setBanner({ kind: 'info', text: '当前后端尚未提供上游 AI 连通测试端点；此按钮不会伪造测试结果。' });
-    ctx.push('AI 连通测试端点尚未实现', 'info');
+    if (!form.api_base.trim() || !form.model_name.trim()) {
+      setTest('fail');
+      setBanner({ kind: 'err', text: '请先填写 API Base 与模型名称。' });
+      return;
+    }
+    setTest('testing'); setBanner(null);
+    try {
+      const payload = {
+        api_base: form.api_base,
+        model_name: form.model_name,
+        api_type: 'openai_compatible',
+        timeout_seconds: Math.min(Math.max(form.timeout || 30, 1), 60),
+      };
+      if (newKey.trim()) payload.api_key = newKey.trim();
+      const result = await staffApi.testLlm(payload);
+      setTest('ok');
+      setBanner({ kind: 'ok', text: `${result.message} 耗时 ${result.latency_ms} ms。` });
+      ctx.push(`AI 连接成功 · ${result.latency_ms} ms`, 'ok');
+    } catch (error) {
+      const message = errorMessage(error, 'AI 连接测试失败。');
+      setTest('fail'); setBanner({ kind: 'err', text: message });
+      ctx.push(message, 'err');
+    }
+  }
+  async function refreshModels() {
+    if (!form.api_base.trim()) {
+      setBanner({ kind: 'err', text: '请先填写 API Base URL。' });
+      return;
+    }
+    setModelsLoading(true); setBanner(null);
+    try {
+      const payload = {
+        api_base: form.api_base,
+        api_type: 'openai_compatible',
+        timeout_seconds: Math.min(Math.max(form.timeout || 20, 1), 60),
+      };
+      if (newKey.trim()) payload.api_key = newKey.trim();
+      const result = await staffApi.llmModels(payload);
+      setModels(result.models || []);
+      setBanner({ kind: 'ok', text: `已从上游读取 ${result.count || 0} 个可用 Gemini 模型。` });
+    } catch (error) {
+      setBanner({ kind: 'err', text: errorMessage(error, '模型列表读取失败。') });
+    } finally { setModelsLoading(false); }
   }
   async function doSave(enable) {
     if (!enable) {
@@ -190,7 +248,7 @@ export function LLMConfig({ ctx }) {
         <div className="card-h"><div className="ct">连接参数</div><button className="btn ghost sm" onClick={() => { setForm({ ...base }); setBanner({ kind: 'info', text: '已恢复到上次保存的配置。' }); }}><Icon id="refresh" size={13} className="btn-ico" />恢复上次配置</button></div>
         <div className="fld-row">
           <div className="fld"><label className="lbl">API 类型<span className="ro">只读</span></label><input className="inp mono" value={config.api_type || 'openai_compatible'} disabled readOnly /><div className="help">固定为 openai_compatible。</div></div>
-          <div className="fld"><label className="lbl">模型名称<span className="req">必填</span></label><input className="inp mono" value={form.model_name} onChange={(e) => set('model_name', e.target.value)} placeholder="gemini-2.5-pro" /></div>
+          <div className="fld"><label className="lbl">模型名称<span className="req">必填</span></label><div style={{ display: 'flex', gap: 8 }}><select className="inp mono" value={form.model_name} onChange={(e) => set('model_name', e.target.value)}>{form.model_name && !models.includes(form.model_name) && <option value={form.model_name}>{form.model_name}（当前）</option>}{models.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="btn ghost sm" type="button" onClick={refreshModels} disabled={modelsLoading}>{modelsLoading ? <Spin /> : <Icon id="refresh" size={13} />}{modelsLoading ? '读取中' : '刷新模型'}</button></div><div className="help">从当前上游的 /models 接口读取，不在前端写死模型名。</div></div>
         </div>
         <div className="fld"><label className="lbl">API Base URL<span className="req">必填</span></label><input className="inp mono" value={form.api_base} onChange={(e) => set('api_base', e.target.value)} placeholder="https://example.com/v1" /><div className="help">HTTP / HTTPS 地址，OpenAI 兼容网关根路径。</div></div>
         <div className="fld"><label className="lbl"><Icon id="key" size={12} />API Key</label>
@@ -227,6 +285,8 @@ export function StaffAccounts({ ctx }) {
   const [invite, setInvite] = useState(false);
   const [inv, setInv] = useState({ name: '', email: '', role: 'review' });
   const [busy, setBusy] = useState(false);
+  const [roleEdit, setRoleEdit] = useState(null);
+  const [targetRole, setTargetRole] = useState('review');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -270,8 +330,19 @@ export function StaffAccounts({ ctx }) {
     } catch (error) { ctx.push(errorMessage(error, '账号恢复失败。'), 'err'); }
     finally { setBusy(false); }
   }
-  async function changeRole(s) {
-    ctx.push(`${s.name} 的角色修改接口已存在，但当前设计没有目标角色选择控件，未执行修改。`, 'info');
+  function changeRole(s) {
+    setRoleEdit(s);
+    setTargetRole(s.role);
+  }
+  async function saveRole() {
+    if (!roleEdit || targetRole === roleEdit.role) { setRoleEdit(null); return; }
+    setBusy(true);
+    try {
+      replaceStaff(await staffApi.updateStaff(roleEdit.id, { role: targetRole }));
+      ctx.push(`${roleEdit.name} 的角色已更新`, 'ok');
+      setRoleEdit(null);
+    } catch (error) { ctx.push(errorMessage(error, '角色修改失败。'), 'err'); }
+    finally { setBusy(false); }
   }
   async function sendInvite() {
     if (!inv.name.trim() || !inv.email.trim()) return;
@@ -332,6 +403,17 @@ export function StaffAccounts({ ctx }) {
           <div className="modal-foot"><button className="btn ghost" onClick={() => setInvite(false)} disabled={busy}>取消</button><button className="btn" onClick={sendInvite} disabled={busy || !inv.name.trim() || !inv.email.trim()}>{busy ? <><Spin />发送中…</> : '确认邀请'}</button></div>
         </div>
       </div>}
+
+      {roleEdit && <div className="scrim" onClick={() => !busy && setRoleEdit(null)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-h"><div className="mi warn"><Icon id="staff" size={19} /></div><div><div className="mt">修改员工角色</div><div className="md">{roleEdit.name} · {roleEdit.email}</div></div></div>
+          <div className="modal-body">
+            <div className="fld"><label className="lbl">目标角色</label><select className="inp" value={targetRole} onChange={(e) => setTargetRole(e.target.value)}><option value="admin">平台管理员</option><option value="lead">编辑部负责人</option><option value="review">审稿编辑</option></select></div>
+            <div className="impact"><div className="il">权限影响</div>保存后该账号下次鉴权时立即按新角色进入对应工作台；系统始终要求至少保留一名启用的平台管理员。</div>
+          </div>
+          <div className="modal-foot"><button className="btn ghost" onClick={() => setRoleEdit(null)} disabled={busy}>取消</button><button className="btn" onClick={saveRole} disabled={busy || targetRole === roleEdit.role}>{busy ? <><Spin />保存中…</> : '确认修改'}</button></div>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -344,26 +426,46 @@ export function SystemHealth({ ctx }) {
     { id: 'api', name: '后端 API', icon: 'plug', status: 'warn', ms: null, note: '等待检查' },
     { id: 'db', name: 'Supabase', icon: 'db', status: 'warn', ms: null, note: '等待检查' },
     { id: 'ai', name: 'AI 服务', icon: 'bolt', status: 'warn', ms: null, note: '仅检查配置完整性' },
-    { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '后端尚未提供存储健康探针' },
+    { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '等待检查' },
   ]);
 
   const check = useCallback(async (notify = true) => {
     setChecking(true);
     const started = performance.now();
-    const [apiResult, dbResult, llmResult] = await Promise.allSettled([
-      staffApi.health(), staffApi.staff(), staffApi.llmStatus(),
+    const [apiResult, dbResult, llmResult, storageResult] = await Promise.allSettled([
+      staffApi.health(), staffApi.staff(), staffApi.llmStatus(), staffApi.storageHealth(),
     ]);
     const elapsed = Math.max(1, Math.round(performance.now() - started));
     const llm = llmResult.status === 'fulfilled' ? llmResult.value : null;
+    let aiTest = null;
+    if (notify && llm?.configured) {
+      aiTest = await staffApi.testLlm({
+        api_base: llm.api_base,
+        model_name: llm.model_name,
+        api_type: llm.api_type || 'openai_compatible',
+        timeout_seconds: Math.min(llm.timeout_seconds ?? 30, 60),
+      }).then((value) => ({ status: 'fulfilled', value }), (reason) => ({ status: 'rejected', reason }));
+    }
     setHealth([
       { id: 'api', name: '后端 API', icon: 'plug', status: apiResult.status === 'fulfilled' ? 'ok' : 'err', ms: elapsed, note: apiResult.status === 'fulfilled' ? '健康接口响应正常' : errorMessage(apiResult.reason) },
       { id: 'db', name: 'Supabase', icon: 'db', status: dbResult.status === 'fulfilled' ? 'ok' : 'err', ms: elapsed, note: dbResult.status === 'fulfilled' ? '员工数据读取正常' : errorMessage(dbResult.reason) },
-      { id: 'ai', name: 'AI 服务', icon: 'bolt', status: llm?.configured ? 'warn' : 'err', ms: null, note: llm?.configured ? `${llm.model_name || '模型'} 已配置，未做上游连通测试` : 'AI 服务尚未完整配置' },
-      { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '后端尚未提供存储健康探针' },
+      { id: 'ai', name: 'AI 服务', icon: 'bolt', status: aiTest?.status === 'fulfilled' ? 'ok' : (aiTest?.status === 'rejected' || !llm?.configured ? 'err' : 'warn'), ms: aiTest?.value?.latency_ms ?? null, note: aiTest?.status === 'fulfilled' ? `${aiTest.value.model_name} 连接正常` : (aiTest?.status === 'rejected' ? errorMessage(aiTest.reason) : (llm?.configured ? `${llm.model_name || '模型'} 已配置；点击立即检查可做真实探测` : 'AI 服务尚未完整配置')) },
+      { id: 'storage', name: '文件存储', icon: 'cloud', status: storageResult.status === 'fulfilled' ? 'ok' : 'err', ms: storageResult.value?.latency_ms ?? null, note: storageResult.status === 'fulfilled' ? storageResult.value.message : errorMessage(storageResult.reason) },
     ]);
     setAt('刚刚'); setChecking(false);
-    if (notify) ctx.push('已完成可用探针检查；未提供探针的项目保持“注意”。', 'info');
+    if (notify) ctx.push(aiTest?.status === 'rejected' ? '系统检查完成，AI 上游连接异常。' : '系统真实探针检查完成。', aiTest?.status === 'rejected' ? 'err' : 'ok');
   }, [ctx]);
+
+  async function copyDiagnostics() {
+    const lines = [`轻阅读系统诊断 · ${new Date().toLocaleString('zh-CN')}`]
+      .concat(health.map((item) => `${item.name}: ${item.status} · ${item.ms == null ? '—' : `${item.ms} ms`} · ${item.note}`));
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      ctx.push('诊断信息已复制；内容不含密钥、Token 或稿件。', 'ok');
+    } catch {
+      ctx.push('浏览器未允许复制，请检查剪贴板权限。', 'err');
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => check(false), 0);
@@ -374,7 +476,7 @@ export function SystemHealth({ ctx }) {
       <div className="phead">
         <div><div className="eyebrow">— System Health —</div><h1>系统状态</h1><p className="lead">各核心依赖的实时健康检查。最近检查：{at}。</p></div>
         <div className="pactions">
-          <button className="btn ghost" onClick={() => ctx.push('诊断复制功能尚未接入。', 'info')}><Icon id="copy" size={14} className="btn-ico" />复制诊断信息</button>
+          <button className="btn ghost" onClick={copyDiagnostics}><Icon id="copy" size={14} className="btn-ico" />复制诊断信息</button>
           <button className="btn" onClick={check} disabled={checking}>{checking ? <><Spin />检查中…</> : <><Icon id="refresh" size={14} className="btn-ico" />立即检查</>}</button>
         </div>
       </div>
@@ -391,7 +493,7 @@ export function SystemHealth({ ctx }) {
       </div>
       <div className="card">
         <div className="card-h"><div className="ct">异常摘要</div><button className="btn ghost sm" onClick={() => ctx.go('logs')}>查看相关日志</button></div>
-        <div className="banner warn"><span className="bd" /><span className="bx">AI 上游与文件存储尚无独立健康探针；当前页面不会用模拟数据宣称它们正常。</span></div>
+        <div className="banner info"><span className="bd" /><span className="bx">页面初次打开只做无副作用检查；点击“立即检查”时会额外向 AI 上游发送固定探测文本，不包含稿件或用户内容。</span></div>
       </div>
     </div>
   );
@@ -401,34 +503,54 @@ export function SystemHealth({ ctx }) {
 export function TechnicalLogs({ ctx }) {
   const [detail, setDetail] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [filters, setFilters] = useState(INITIAL_TECH_LOG_FILTERS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const LVL = { info: ['info', 'INFO'], warn: ['warn', 'WARN'], error: ['err', 'ERROR'] };
 
-  const loadLogs = useCallback(async () => {
+  const loadLogs = useCallback(async (nextFilters = INITIAL_TECH_LOG_FILTERS) => {
     setLoading(true); setLoadError('');
-    try { setLogs((await staffApi.platformLogs()).map(toUiTechnicalLog)); }
+    try { setLogs((await staffApi.platformLogs(nextFilters)).map(toUiTechnicalLog)); }
     catch (error) { setLoadError(errorMessage(error, '技术日志读取失败。')); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(loadLogs, 0);
+    const timer = setTimeout(() => loadLogs(INITIAL_TECH_LOG_FILTERS), 0);
     return () => clearTimeout(timer);
   }, [loadLogs]);
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetFilters() {
+    setFilters(INITIAL_TECH_LOG_FILTERS);
+    loadLogs(INITIAL_TECH_LOG_FILTERS);
+  }
+
+  function exportLogs() {
+    if (!logs.length) { ctx.push('当前没有可导出的技术日志。', 'info'); return; }
+    downloadCsv(`qingyue-technical-logs-${new Date().toISOString().slice(0, 10)}.csv`, [
+      { key: 't', label: '时间' }, { key: 'lvl', label: '等级' },
+      { key: 'mod', label: '模块' }, { key: 'who', label: '操作人' },
+      { key: 'act', label: '操作摘要' }, { key: 'result', label: '结果' },
+    ], logs);
+    ctx.push(`已导出 ${logs.length} 条技术日志。`, 'ok');
+  }
   return (
     <div className="page wide fade-in">
       <div className="phead">
         <div><div className="eyebrow">— Technical Logs —</div><h1>技术日志</h1><p className="lead">系统与安全事件的审计记录。日志详情不含完整密钥、Token、密码或稿件正文。</p></div>
-        <div className="pactions"><button className="btn ghost" onClick={() => ctx.push('CSV 导出端点尚未实现。', 'info')}><Icon id="download" size={14} className="btn-ico" />导出当前结果</button></div>
+        <div className="pactions"><button className="btn ghost" onClick={exportLogs}><Icon id="download" size={14} className="btn-ico" />导出当前结果</button></div>
       </div>
       <div className="filterbar">
-        <div className="ff"><label className="lbl">时间范围</label><select className="inp"><option>最近 24 小时</option><option>最近 7 天</option><option>自定义</option></select></div>
-        <div className="ff"><label className="lbl">等级</label><select className="inp"><option>全部</option><option>INFO</option><option>WARN</option><option>ERROR</option></select></div>
-        <div className="ff"><label className="lbl">模块</label><select className="inp"><option>全部</option><option>AI 服务</option><option>后端 API</option><option>账号</option><option>文件存储</option></select></div>
-        <div className="ff"><label className="lbl">关键词</label><input className="inp" placeholder="搜索操作摘要 / 操作人" /></div>
+        <div className="ff"><label className="lbl">时间范围</label><select className="inp" value={filters.hours} onChange={(e) => updateFilter('hours', e.target.value)}><option value="24">最近 24 小时</option><option value="168">最近 7 天</option></select></div>
+        <div className="ff"><label className="lbl">结果</label><select className="inp" value={filters.result} onChange={(e) => updateFilter('result', e.target.value)}><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option></select></div>
+        <div className="ff"><label className="lbl">模块</label><select className="inp" value={filters.domain} onChange={(e) => updateFilter('domain', e.target.value)}><option value="">全部</option><option value="platform">平台配置</option><option value="auth">账号</option><option value="security">安全</option></select></div>
+        <div className="ff"><label className="lbl">关键词</label><input className="inp" value={filters.q} onChange={(e) => updateFilter('q', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadLogs(filters); }} placeholder="搜索操作摘要 / 操作人" /></div>
         <div className="fspacer" />
-        <button className="btn subtle" onClick={() => ctx.push('日志筛选参数尚未接入后端。', 'info')}>筛选</button><button className="btn ghost" onClick={loadLogs}>重置</button>
+        <button className="btn subtle" onClick={() => loadLogs(filters)}>筛选</button><button className="btn ghost" onClick={resetFilters}>重置</button>
       </div>
       <div className="card pad0">
         {loading && <LoadingState rows={5} />}
@@ -458,6 +580,9 @@ export function TechnicalLogs({ ctx }) {
             <div><div className="lbl">操作人</div><div>{detail.who}</div></div>
             <div><div className="lbl">结果</div><div>{detail.result}</div></div>
             <div style={{ gridColumn: '1 / -1' }}><div className="lbl">操作摘要</div><div>{detail.act}</div></div>
+            <div><div className="lbl">动作标识</div><div className="t-mono">{detail.raw.action}</div></div>
+            <div><div className="lbl">资源</div><div className="t-mono">{detail.raw.resource_type}{detail.raw.resource_id ? ` · ${detail.raw.resource_id}` : ''}</div></div>
+            {(detail.raw.before_data || detail.raw.after_data) && <div style={{ gridColumn: '1 / -1' }}><div className="lbl">变更内容</div><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, fontSize: 12 }}>{JSON.stringify({ before: detail.raw.before_data, after: detail.raw.after_data }, null, 2)}</pre></div>}
           </div>
           <div className="impact" style={{ marginTop: 14 }}><div className="il">已脱敏</div>为保障安全，日志不记录完整 API Key、Token、密码及稿件正文。</div>
         </div>
@@ -469,5 +594,5 @@ export function TechnicalLogs({ ctx }) {
 
 /* 接口状态：
  *   已接入：平台概览聚合、LLM 配置读写、员工列表/邀请/启停、后端与数据库探针、技术日志。
- *   待补：上游 AI 连接测试、配置草稿、角色选择控件、重发邀请、安全记录、存储探针、日志筛选与 CSV。
+ *   待补：配置草稿、重发邀请与独立安全记录。
  */

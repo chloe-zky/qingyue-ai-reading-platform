@@ -9,7 +9,12 @@
 //    并给出「退出」入口；只有 401（凭证失效）才清会话。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import {
+  clearStaffAuthCallbackUrl,
+  getStaffAuthAction,
+  supabase,
+  isSupabaseConfigured,
+} from '../lib/supabaseClient';
 import { api, ApiError, onUnauthorized } from '../lib/apiClient';
 import { AUTH_STATUS, StaffAuthContext } from './staffAuth';
 
@@ -19,6 +24,8 @@ export default function StaffAuthProvider({ children }) {
   );
   const [staff, setStaff] = useState(null);
   const [error, setError] = useState('');
+  const [hasSession, setHasSession] = useState(false);
+  const [authAction, setAuthAction] = useState(getStaffAuthAction);
 
   // 登录/登出/自动续期可能密集触发；只认最后一次请求的结果，丢弃过期回包。
   const runIdRef = useRef(0);
@@ -38,6 +45,7 @@ export default function StaffAuthProvider({ children }) {
     };
 
     const { data } = await supabase.auth.getSession();
+    settle(() => setHasSession(Boolean(data.session)));
     if (!data.session) {
       settle(() => {
         setStaff(null);
@@ -83,6 +91,7 @@ export default function StaffAuthProvider({ children }) {
     if (isSupabaseConfigured) await supabase.auth.signOut();
     if (!mountedRef.current) return;
     setStaff(null);
+    setHasSession(false);
     setError('');
     setStatus(isSupabaseConfigured ? AUTH_STATUS.ANONYMOUS : AUTH_STATUS.UNCONFIGURED);
   }, []);
@@ -113,16 +122,43 @@ export default function StaffAuthProvider({ children }) {
     return true;
   }, [resolveStaff]);
 
+  /** 邀请 / 找回密码回调已建立会话后设置新密码，并继续解析员工角色。 */
+  const completePasswordSetup = useCallback(async (password) => {
+    if (!isSupabaseConfigured) return { ok: false, error: '前端未配置 Supabase' };
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      return { ok: false, error: '邀请链接已失效或已过期，请联系平台管理员重新发送。' };
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      return { ok: false, error: updateError.message || '密码设置失败，请稍后重试。' };
+    }
+    setAuthAction(null);
+    clearStaffAuthCallbackUrl();
+    await resolveStaff();
+    return { ok: true };
+  }, [resolveStaff]);
+
+  const cancelPasswordSetup = useCallback(async () => {
+    setAuthAction(null);
+    clearStaffAuthCallbackUrl();
+    await signOut();
+  }, [signOut]);
+
   const value = useMemo(() => ({
     status,
     staff,
     error,
+    hasSession,
+    authAction,
     role: staff?.role ?? null,
     isAuthenticated: status === AUTH_STATUS.AUTHENTICATED,
     signIn,
     signOut,
+    completePasswordSetup,
+    cancelPasswordSetup,
     retry: resolveStaff,
-  }), [status, staff, error, signIn, signOut, resolveStaff]);
+  }), [status, staff, error, hasSession, authAction, signIn, signOut, completePasswordSetup, cancelPasswordSetup, resolveStaff]);
 
   return <StaffAuthContext.Provider value={value}>{children}</StaffAuthContext.Provider>;
 }

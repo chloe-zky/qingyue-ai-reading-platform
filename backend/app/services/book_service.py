@@ -1,3 +1,5 @@
+import secrets
+
 from app.database import supabase
 from app.schemas.book import BookCreate
 
@@ -12,7 +14,14 @@ def get_all_books() -> list:
     return res.data if res.data else []
 
 def create_book(book: BookCreate) -> int:
-    res = supabase.table("books").insert(book.model_dump()).execute()
+    payload = {
+        **book.model_dump(),
+        # Internal catalog entries have no author-facing receipt. A random valid
+        # hash satisfies the same database invariant without creating a usable
+        # or recoverable author credential.
+        "author_access_token_hash": secrets.token_hex(32),
+    }
+    res = supabase.table("books").insert(payload).execute()
     if not res.data:
         raise RuntimeError("无法将书籍插入数据库")
     

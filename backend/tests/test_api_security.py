@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -53,7 +55,7 @@ class ApiSecurityTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), expected)
-        service.assert_called_once_with(8, "题材不符")
+        service.assert_called_once_with(8, "题材不符", self.review_editor.user_id)
 
     def test_editor_revise_route_matches_frontend_contract(self):
         expected = {
@@ -73,7 +75,7 @@ class ApiSecurityTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), expected)
-        service.assert_called_once_with(9, "请补足结尾")
+        service.assert_called_once_with(9, "请补足结尾", self.review_editor.user_id)
 
     def test_private_hotspot_origin_is_allowed_in_development(self):
         response = self.client.options(
@@ -101,6 +103,32 @@ class ApiSecurityTests(unittest.TestCase):
             response.headers.get("access-control-allow-origin"),
             "https://malicious.example",
         )
+
+    def test_request_id_is_returned_and_accepts_safe_caller_value(self):
+        response = self.client.get(
+            "/api/health/live",
+            headers={"X-Request-ID": "portfolio-check-123"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("x-request-id"), "portfolio-check-123")
+
+    def test_invalid_request_id_is_replaced(self):
+        response = self.client.get(
+            "/api/health/live",
+            headers={"X-Request-ID": "bad value with spaces"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(response.headers.get("x-request-id", ""), r"^[a-f0-9]{32}$")
+
+    def test_readiness_reports_database_availability(self):
+        query = MagicMock()
+        query.select.return_value = query
+        query.limit.return_value = query
+        query.execute.return_value = SimpleNamespace(data=[])
+        with patch("app.main.supabase.table", return_value=query):
+            response = self.client.get("/api/health/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["database"], "available")
 
 
 if __name__ == "__main__":

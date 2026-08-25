@@ -6,9 +6,77 @@ from app.database import supabase
 from app.services.admin_service import get_active_llm_config
 from app.services.tag_service import filter_tags, get_valid_vocabularies
 from app.utils.json_utils import clean_and_parse_json
+from app.utils.outbound_url import validate_llm_api_base
 
 
 RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _render_prompt_template(template: str, values: dict[str, str]) -> str:
+    rendered = template
+    for name in ("title", "intro", "sample"):
+        rendered = rendered.replace(f"{{{{{name}}}}}", values.get(name, ""))
+    return rendered
+
+
+def get_published_tagging_prompt(book: dict) -> tuple[str, str]:
+    """Read the canonical published Prompt, with the legacy table as fallback."""
+    prompt_rows = (
+        supabase.table("editorial_prompts")
+        .select("id")
+        .eq("prompt_key", "novel_metadata_tagging")
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if prompt_rows:
+        versions = (
+            supabase.table("editorial_prompt_versions")
+            .select(
+                "version_no,system_prompt,user_prompt_template,variables"
+            )
+            .eq("prompt_id", prompt_rows[0]["id"])
+            .eq("status", "published")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if versions:
+            version = versions[0]
+            values = {
+                "title": str(book.get("title") or ""),
+                "intro": str(book.get("intro") or ""),
+                "sample": str(book.get("sample") or ""),
+            }
+            body = _render_prompt_template(
+                version.get("user_prompt_template") or "", values
+            )
+            prompt = f"{version.get('system_prompt') or ''}\n\n{body}".strip()
+            return prompt, f"editorial-v{version['version_no']}"
+
+    legacy = (
+        supabase.table("prompt_versions")
+        .select("prompt_text,version")
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not legacy:
+        raise ValueError("找不到已发布的提示词 (Prompt)")
+    prompt_text = legacy[0]["prompt_text"]
+    prompt = (
+        f"{prompt_text}\n\n"
+        f"标题：《{book.get('title') or ''}》\n"
+        f"扉页语：{book.get('intro') or ''}\n"
+        f"内容简介：{book.get('sample') or ''}\n\n"
+        "提示：请严格输出 JSON，不要输出 markdown，不要解释。"
+    )
+    return prompt, legacy[0]["version"]
 
 
 def _is_retryable(error: Exception) -> bool:
@@ -28,6 +96,7 @@ def call_openai_compatible_llm(
     timeout_seconds: int = 30,
     max_retries: int = 2,
 ) -> str:
+    api_base = validate_llm_api_base(api_base)
     url = f"{api_base.rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -85,24 +154,7 @@ def extract_tags_for_book(book_id: int, auto_confirm: bool = False) -> dict:
         raise ValueError(f"找不到 ID 为 {book_id} 的书籍")
     book = book_res.data[0]
 
-    prompt_res = (
-        supabase.table("prompt_versions")
-        .select("prompt_text", "version")
-        .eq("is_active", True)
-        .execute()
-    )
-    if not prompt_res.data:
-        raise ValueError("找不到激活状态的提示词 (Prompt)")
-
-    prompt_text = prompt_res.data[0]["prompt_text"]
-    prompt_version = prompt_res.data[0]["version"]
-    full_prompt = (
-        f"{prompt_text}\n\n"
-        f"标题：《{book['title']}》\n"
-        f"扉页语：{book['intro']}\n"
-        f"内容简介：{book['sample']}\n\n"
-        "提示：请严格输出 JSON，不要输出 markdown，不要解释。"
-    )
+    full_prompt, prompt_version = get_published_tagging_prompt(book)
 
     try:
         raw_response_text = call_openai_compatible_llm(

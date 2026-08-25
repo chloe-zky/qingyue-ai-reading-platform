@@ -1,117 +1,136 @@
-# 轻阅读 · AI 阅读与编辑协作平台
+# 轻阅读 · AI 内容与个性化阅读平台
 
-一个面向读者、作者和编辑团队的全栈作品集项目。它把“投稿—AI 辅助打标—人工审稿—发布—个性化推荐”串成一条可演示的内容生命周期，并通过角色权限区分平台技术配置、编辑策略管理与具体稿件审读。
+轻阅读是一个面向读者、作者与编辑团队的全流程内容平台。它把匿名投稿、AI 辅助打标、人工审稿、多次退修、内容发布、读者账号与轻量个性化推荐连接成一条可运行的业务闭环。
 
-> 公开仓库只包含可解释的应用源码、数据库迁移和自动化测试。真实 Supabase 地址、密钥、账号、线上数据、执行日志、协作记录和设计过程文件均不在仓库中。
+## 已完成的业务闭环
 
-## 已实现的功能
+### 作者端
 
-- 读者端：偏好选择、推荐列表、正文阅读、护眼模式与首页推荐卡片。
-- 作者端：表单投稿、DOCX 正文提取、投稿回执、进度查询，以及退修后的再次提交。
-- 审稿编辑：查看待审稿件、AI 标签草稿、确认标签、上传封面、通过、退修或拒稿，并查看自己的审稿记录。
-- 编辑部负责人：查看当前 Prompt、标签词表、推荐策略版本及编辑域审计日志。
-- 平台管理员：配置 OpenAI-compatible LLM、邀请或停用内部账号、分配角色，并查看技术与安全审计日志。
-- 内部鉴权：Supabase Auth 登录，后端校验 Bearer access token，再读取 `staff_profiles` 执行角色授权。
+- 新稿投稿与 DOCX 正文提取
+- 不可猜测的安全回执；数据库只保存 SHA-256 哈希
+- 回执查询、退修意见查看和多轮修订重投
+- 正文仅用于平台阅读与人工审稿，默认不发送给 AI
 
-当前审稿闭环与三角色鉴权已实现。编辑部负责人的 Prompt、词表和推荐策略目前以“查询现有版本”为主，版本创建、审批与发布仍是待完善功能；作者端也尚未接入正式用户账号归属，因此不应直接作为公开生产服务部署。
+### 编辑端
 
-## 技术结构
+- 审稿编辑认领稿件，避免并发重复处理
+- AI 标签草稿、人工校对、退修、拒稿与审核发布
+- 编辑部负责人管理版本化 Prompt、标签词表和推荐策略
+- 平台管理员只管理 AI 服务、员工账号、运行状态与技术日志
+
+### 读者端
+
+- Supabase Auth 注册、登录、找回密码和独立会话
+- 收藏、阅读历史、进度恢复和个性化开关
+- 显式偏好与汇总阅读行为的轻量混合推荐
+- 推荐反馈与“不感兴趣”排除；不采集原始指针或滚动轨迹
+
+## 权责分离
+
+| 角色 | 主要职责 |
+| --- | --- |
+| `platform_admin` | AI 服务、员工账号、服务状态、技术日志 |
+| `editorial_lead` | Prompt、标签词表、推荐策略、编辑配置日志 |
+| `review_editor` | 稿件认领、审读、退修、拒稿、标签确认与发布 |
+
+前端入口按职责拆分：
+
+- `/`：公开进入页
+- `/reader`：已登录读者空间；未登录时返回公开进入页
+- `/author`：作者投稿与回执中心
+- `/studio/login`：内部人员登录
+- `/studio/platform`：平台管理员工作台
+- `/studio/editorial`：编辑部负责人工作台
+- `/studio/review`：审稿编辑工作台
+
+内部角色仍由后端校验；直接输入其他角色的网址不会获得对应权限。
+
+## 技术架构
 
 ```text
-front/                       React 19 + Vite 8
-  src/author/                作者投稿工作台
-  src/reader/                推荐与阅读流程
-  src/staff/                 三角色内部工作台
-  src/auth/                  Supabase 会话与角色守卫
-backend/                     FastAPI + Supabase Python SDK
-  app/routers/               HTTP 接口与权限依赖
-  app/services/              投稿、审稿、推荐、配置与审计逻辑
-  app/schemas/               Pydantic 请求/响应模型
-  migrations/                角色、配置、审计与审稿状态迁移
-  tests/                     不访问真实 Supabase 的测试
+React 19 + Vite
+        │
+        │ HTTPS / Bearer token
+        ▼
+FastAPI
+  ├─ routers：HTTP 与角色边界
+  ├─ schemas：字段校验
+  ├─ services：投稿、审稿、推荐、配置等业务逻辑
+  └─ utils：鉴权、限流、外呼保护、请求追踪
+        │
+        ├─ Supabase Auth / Postgres / Storage
+        └─ OpenAI-compatible LLM（仅元数据打标）
 ```
 
-核心数据流：
-
-```text
-作者投稿 → books.pending_review → AI 生成标签草稿
-        → 审稿编辑人工确认 → 通过 / 退修 / 拒稿
-        → active + confirmed → 读者推荐池
-```
-
-AI 打标默认只读取标题、扉页语和内容简介，不发送正文或封面。
+推荐系统当前使用可解释的轻量方案：显式偏好 60%、汇总行为 25%、内容质量 10%、新鲜度 5%。AI 不参与实时排序，也不读取作者全文。
 
 ## 本地运行
 
-### 1. 后端
+### 后端
 
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-在 `backend/.env` 中填写：
+后端至少需要：
 
 - `SUPABASE_URL`
-- `SUPABASE_SERVICE_KEY`：只允许存在于后端，不得使用 `VITE_` 前缀
-- `APP_ENV`：本地使用 `development`
-- `FRONTEND_ORIGINS`：生产环境允许访问后端的前端来源，多个值用英文逗号分隔
+- `SUPABASE_SERVICE_KEY`，只允许存在后端
+- `APP_ENV=development`
+- `FRONTEND_ORIGINS`
 
-`ADMIN_TOKEN` 仅为旧版迁移期排障兼容项，当前内部接口不依赖它，新部署可以留空。
+生产环境还必须使用 HTTPS 前端来源，并通过 `LLM_ALLOWED_HOSTS` 配置 AI 上游域名白名单。
 
-### 2. 前端
+### 前端
 
 ```bash
 cd front
-cp .env.example .env.local
 npm ci
-npm run dev -- --host 0.0.0.0
+cp .env.example .env.local
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
-在 `front/.env.local` 中填写 Supabase 项目 URL 与 **anon public key**。开发服务器监听 `0.0.0.0` 后，同一局域网或手机热点内可通过 `http://<电脑私网IP>:5173` 访问；后端也必须监听 `0.0.0.0:8000`。
+前端只能配置 Supabase 公钥。开发环境未设置 `VITE_API_BASE_URL` 时会按当前主机推断端口 `8000`，便于手机热点调试；生产环境必须显式配置 HTTPS API 地址。
 
-内部工作台可通过 `?mode=studio` 或 `#studio` 进入。真正的访问控制在后端完成，隐藏前端入口不构成安全措施。
-
-### 3. 数据库
-
-迁移不会自动作用于托管项目。执行前先备份，并按照 [`backend/migrations/README.md`](backend/migrations/README.md) 的顺序操作。仓库中的迁移建立在项目既有 `books`、标签、Prompt 和推荐相关基础表之上；它不是从空数据库初始化全部业务表的完整基线。
+电脑访问 `http://127.0.0.1:5173/`。同一热点下的手机访问 `http://电脑私网IP:5173/`。
 
 ## 验证
 
 ```bash
 cd backend
-PYTHONDONTWRITEBYTECODE=1 ./venv/bin/python -m unittest discover -s tests -v
-./venv/bin/python -m pip check
+./.venv/bin/python -m unittest discover -s tests -v
+./.venv/bin/python -m pip check
 
 cd ../front
 npm run lint
 npm run build
 ```
 
-后端测试使用内存替身，不会修改 Supabase。真实端到端测试会创建业务记录，执行前应使用隔离环境并在验证后清理测试数据。
+当前自动化基线为 118 个后端测试，覆盖角色矩阵、投稿与审稿状态机、配置安全、读者数据、个性化推荐、上传校验、限流和网络短暂失败重试。GitHub Actions 会在推送和拉取请求时重复执行后端测试、依赖检查、前端 lint 与生产构建。
 
-## 主要接口
+运行状态接口：
 
-- 公共与作者：`/api/health`、`/api/recommendations`、`/api/author/*`
-- 登录员工：`GET /api/internal/me`
-- 审稿编辑：`/api/editor/*`、`/api/uploads/cover`、`/api/books/{id}/*-tags`
-- 编辑部负责人：`/api/editorial/*`
-- 平台管理员：`/api/platform/*`
+- `GET /api/health/live`：进程存活
+- `GET /api/health/ready`：服务与数据库就绪
+- `GET /docs`：交互式 API 文档
 
-内部接口统一使用 `Authorization: Bearer <Supabase access token>`。交互式接口文档默认位于 `http://127.0.0.1:8000/docs`。
+所有响应携带 `X-Request-ID`，服务端输出不含正文、密钥和账号凭证的结构化请求日志。
 
-## 安全边界与公开说明
+## 安全与隐私边界
 
-- `.env`、`.env.local`、服务端 service-role key、LLM key 和账号凭据不得提交。
-- 浏览器只使用 Supabase anon public key；数据权限仍需由 RLS 与后端角色校验共同约束。
-- 作者稿件查询目前缺少账号级所有权校验，公开部署前必须补齐。
-- 该仓库不提供生产数据、内部账号或可直接连接作者托管项目的配置。
-- 安全问题请参阅 [`SECURITY.md`](SECURITY.md)。
+- Supabase service key、AI key 和旧迁移期共享 Token 不进入前端
+- 员工与读者使用相互隔离的 Supabase Auth 存储键
+- 员工权限由后端角色矩阵决定，不能由前端角色页面绕过
+- 作者安全回执原文只保留在作者浏览器，数据库只存哈希
+- AI 只接收标题、扉页语和简介；正文、配图与作者回执不发送给模型
+- LLM 外呼只允许 HTTPS，拒绝本机、私网、保留地址和非白名单生产域名
+- DOCX 有体积、条目数、解压体积、压缩比和 XML 声明限制
+- 图片校验 MIME、文件头、体积、边长和总像素
+- 公共写接口具有应用层滑动窗口限流；正式部署仍应在网关配置第一层限流
 
-## License
-
-本仓库暂未授予开源许可证。源码可供作品展示与评审阅读；复制、分发或商用前请先取得作者许可。
+数据库迁移执行记录与权限核验见 `backend/migrations/APPLIED.md`。生产上线前仍需配置域名、HTTPS、网关限流、密钥轮换和备份策略。

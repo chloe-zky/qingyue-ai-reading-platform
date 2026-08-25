@@ -14,6 +14,16 @@ def _client_context(client):
 
 
 class LLMRequestTests(unittest.TestCase):
+    def setUp(self):
+        self.url_guard = patch(
+            "app.services.gemini_service.validate_llm_api_base",
+            side_effect=lambda value: value.rstrip("/"),
+        )
+        self.url_guard.start()
+
+    def tearDown(self):
+        self.url_guard.stop()
+
     def test_uses_configured_timeout(self):
         response = Mock()
         response.raise_for_status.return_value = None

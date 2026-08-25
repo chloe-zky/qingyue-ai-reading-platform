@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +14,10 @@ class StaffAccountNotFoundError(ValueError):
 
 
 class StaffAccountConflictError(ValueError):
+    pass
+
+
+class StorageHealthError(RuntimeError):
     pass
 
 
@@ -174,3 +179,26 @@ def update_staff_account(
     auth_user = _auth_users_by_id().get(user_id)
     return current, _merge_staff_profile(updated, auth_user)
 
+
+def check_storage_health(bucket_name: str = "covers") -> dict:
+    """Verify Storage API access without reading or writing any uploaded object."""
+    started = time.perf_counter()
+    try:
+        buckets = supabase.storage.list_buckets() or []
+    except Exception as error:
+        raise StorageHealthError("文件存储服务不可用，请检查 Supabase 项目状态。") from error
+
+    names = {
+        str(_value(bucket, "name", ""))
+        for bucket in buckets
+        if _value(bucket, "name", "")
+    }
+    if bucket_name not in names:
+        raise StorageHealthError(f"文件存储缺少 {bucket_name} bucket。")
+
+    return {
+        "status": "ok",
+        "bucket": bucket_name,
+        "latency_ms": max(0, round((time.perf_counter() - started) * 1000)),
+        "message": f"Supabase Storage 与 {bucket_name} bucket 可访问。",
+    }

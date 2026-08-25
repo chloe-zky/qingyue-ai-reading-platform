@@ -3,7 +3,10 @@
 // Nav bar fades in on scroll. Feedback section fades in at 55% scroll.
 // Feedback POST to /api/feedback on submit.
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiFetch } from '../lib/apiClient.js';
+import { readerApi } from '../lib/readerApi.js';
+import { useReaderAuth } from './ReaderAuthContext.js';
 import {
   PaperBg, Divider, VerticalIntro, WarmToggle, BottomInset,
 } from './shared.jsx';
@@ -40,8 +43,6 @@ function ReadingCover({ theme, src, alt }) {
   );
 }
 
-const API_BASE = `http://${window.location.hostname}:8000`;
-
 // Options match the enum the backend expects for `reason`
 const FEEDBACK_OPTIONS = ['推荐准确', '不感兴趣', '标签不准', '风格不符'];
 
@@ -58,26 +59,18 @@ function FeedbackSection({ theme, article, requestId, userPrefs, visible }) {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const response = await fetch(`${API_BASE}/api/feedback`, {
+      await apiFetch('/api/feedback', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        auth: 'optional-reader',
+        body: {
           request_id:   requestId,
           book_id:      article.book_id,
           book_title:   article.title,
           reason:       selected,
           user_prefs:   userPrefs,
           feedback_note: note.trim(),
-        }),
+        },
       });
-      if (!response.ok) {
-        let detail = '反馈提交失败，请稍后重试。';
-        try {
-          const data = await response.json();
-          detail = data.detail || detail;
-        } catch { /* response may not contain JSON */ }
-        throw new Error(detail);
-      }
       setSubmitted(true);
     } catch (error) {
       setSubmitError(error.message || '反馈提交失败，请稍后重试。');
@@ -223,9 +216,129 @@ function FeedbackSection({ theme, article, requestId, userPrefs, visible }) {
 
 // ── Reading screen ─────────────────────────────────────────────────────────
 export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, warm, onToggleWarm }) {
+  const { session, refreshProfile } = useReaderAuth();
+  const bookId = article?.book_id;
   const scrollRef = useRef(null);
+  const lastSavedProgress = useRef(-1);
+  const progressRef = useRef(0);
+  const pendingActiveSeconds = useRef(0);
+  const lastInteractionAt = useRef(0);
+  const flushInFlight = useRef(false);
   const [scrolled,  setScrolled]  = useState(false);
   const [progress,  setProgress]  = useState(0);
+  const [favorite, setFavorite] = useState(false);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+
+  const flushReadingProgress = useCallback(async ({ force = false, keepalive = false } = {}) => {
+    if (!session || !bookId || flushInFlight.current) return;
+    const percent = Math.max(0, Math.min(100, Math.round(progressRef.current * 100)));
+    const activeSecondsDelta = pendingActiveSeconds.current;
+    if (!force && activeSecondsDelta === 0 && percent < 85 && percent - lastSavedProgress.current < 5) return;
+    pendingActiveSeconds.current = 0;
+    flushInFlight.current = true;
+    try {
+      await readerApi.saveProgress(bookId, percent, {
+        activeSecondsDelta,
+        requestId,
+        keepalive,
+      });
+      lastSavedProgress.current = Math.max(lastSavedProgress.current, percent);
+    } catch {
+      pendingActiveSeconds.current += activeSecondsDelta;
+    } finally {
+      flushInFlight.current = false;
+    }
+  }, [session, bookId, requestId]);
+
+  useEffect(() => {
+    if (!session || !article?.book_id) return;
+    const initialPercent = Math.max(0, Math.min(100, Number(article.progress_percent) || 0));
+    let alive = true;
+    readerApi.favoriteState(article.book_id)
+      .then((value) => { if (alive) setFavorite(Boolean(value.is_favorite)); })
+      .catch(() => {});
+    progressRef.current = initialPercent / 100;
+    readerApi.saveProgress(article.book_id, initialPercent, {
+      opened: true,
+      requestId,
+    }).catch(() => {});
+    lastSavedProgress.current = initialPercent;
+    return () => { alive = false; };
+  }, [session, article?.book_id, article?.progress_percent, requestId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    const initialPercent = Math.max(0, Math.min(100, Number(article?.progress_percent) || 0));
+    if (!el || initialPercent <= 0) return undefined;
+
+    const restore = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) el.scrollTop = max * initialPercent / 100;
+    };
+    restore();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(restore);
+    if (observer && el.firstElementChild) observer.observe(el.firstElementChild);
+    const timer = window.setTimeout(restore, 400);
+    const stopTimer = window.setTimeout(() => observer?.disconnect(), 1400);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(stopTimer);
+      observer?.disconnect();
+    };
+  }, [article?.book_id, article?.progress_percent]);
+
+  useEffect(() => {
+    if (!session || !article?.book_id) return undefined;
+    const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+    if (percent < 85 && percent - lastSavedProgress.current < 5) return undefined;
+    const timer = setTimeout(() => { flushReadingProgress(); }, 700);
+    return () => clearTimeout(timer);
+  }, [progress, session, article?.book_id, flushReadingProgress]);
+
+  useEffect(() => {
+    if (!session || !article?.book_id) return undefined;
+    lastInteractionAt.current = Date.now();
+    const markInteraction = () => { lastInteractionAt.current = Date.now(); };
+    const activeTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && Date.now() - lastInteractionAt.current <= 45000) {
+        pendingActiveSeconds.current += 1;
+      }
+    }, 1000);
+    const flushTimer = window.setInterval(() => {
+      flushReadingProgress({ force: true });
+    }, 30000);
+    const handlePageHide = () => {
+      flushReadingProgress({ force: true, keepalive: true });
+    };
+    const el = scrollRef.current;
+    el?.addEventListener('pointerdown', markInteraction, { passive: true });
+    el?.addEventListener('touchstart', markInteraction, { passive: true });
+    window.addEventListener('keydown', markInteraction);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.clearInterval(activeTimer);
+      window.clearInterval(flushTimer);
+      el?.removeEventListener('pointerdown', markInteraction);
+      el?.removeEventListener('touchstart', markInteraction);
+      window.removeEventListener('keydown', markInteraction);
+      window.removeEventListener('pagehide', handlePageHide);
+      flushReadingProgress({ force: true, keepalive: true });
+    };
+  }, [session, article?.book_id, flushReadingProgress]);
+
+  async function toggleFavorite() {
+    if (!session || favoriteBusy) return;
+    setFavoriteBusy(true);
+    try {
+      const next = favorite
+        ? await readerApi.removeFavorite(article.book_id)
+        : await readerApi.addFavorite(article.book_id);
+      setFavorite(next.is_favorite);
+      refreshProfile();
+    } finally { setFavoriteBusy(false); }
+  }
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -233,7 +346,10 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
     const onScroll = () => {
       const max = el.scrollHeight - el.clientHeight;
       setScrolled(el.scrollTop > 16);
-      setProgress(max > 0 ? el.scrollTop / max : 0);
+      const nextProgress = max > 0 ? el.scrollTop / max : 0;
+      progressRef.current = nextProgress;
+      lastInteractionAt.current = Date.now();
+      setProgress(nextProgress);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
@@ -298,7 +414,10 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
             </span>
           </button>
 
-          <WarmToggle theme={theme} on={warm} onToggle={onToggleWarm} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button onClick={toggleFavorite} disabled={favoriteBusy} aria-label={favorite ? '取消收藏' : '收藏作品'} style={{ border: 0, background: 'transparent', color: favorite ? theme.accent : theme.inkLight, fontFamily: theme.sans, fontSize: 12, letterSpacing: '0.06em', cursor: 'pointer', minHeight: 44, padding: 0 }}>{favorite ? '已收藏' : '收藏'}</button>
+            <WarmToggle theme={theme} on={warm} onToggle={onToggleWarm} />
+          </div>
         </div>
       </div>
 
@@ -399,13 +518,13 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
           )}
         </div>
 
-        <FeedbackSection
+        {requestId ? <FeedbackSection
           theme={theme}
           article={article}
           requestId={requestId}
           userPrefs={userPrefs}
           visible={showFeedback}
-        />
+        /> : null}
 
         <BottomInset />
         <div style={{ height: 24 }} />

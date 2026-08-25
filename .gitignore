@@ -8,25 +8,28 @@ venv/
 .env
 .env.*
 !.env.example
-.coverage
-htmlcov/
-.pytest_cache/
 
 # Frontend
 node_modules/
 dist/
 .vite/
-coverage/
 
 # Editor / OS
 .vscode/
-.idea/
 .DS_Store
 
-# Local collaboration and generated artifacts
+# Local AI collaboration/runtime state
 .agents/
 .claude/
 .codex/
 .codex-ppt-work/
-*.ndjson
+.mcp.json
+*.inspect.ndjson
 *.pptx
+backend/Codex Image*.png
+AGENTS.md
+CLAUDE.md
+
+# Local work logs / legacy internal notes may contain environment-specific details.
+backend/migrations/APPLIED.md
+管理端功能梳理.md

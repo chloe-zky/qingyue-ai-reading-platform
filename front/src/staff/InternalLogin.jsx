@@ -2,17 +2,17 @@
 // DOM / 类名 / 文案逐字移植自 prototype-admin/login.jsx（组件内 <style> 已移入 internal.css）。
 //
 // 两处必要的落地改动，均在注释处标明：
-// 1. 早期原型使用过硬编码演示账号；当前版本已删除该登录方式。
+// 1. 原型曾使用硬编码演示账号模拟登录；现已完全移除该方式。
 //    这里换成真实 Supabase Auth；角色不由前端判定，登录后由 GET /api/internal/me 返回。
 //    「账号禁用」也不再靠前端表查，而是后端 403 —— 见 StaffAuthProvider 的 forbidden 态。
-// 2. 原型底部曾展示演示凭据。当前仅保留提示块结构与样式，
+// 2. 原型底部「演示账号」提示块列出了可用账号与明文密码。结构与样式保留，
 //    内容换成真实的开通指引 —— 把不存在的凭证印在真实登录页上既误导也不安全。
 //
 // 登录页恒为文艺主题（theme-lit）：此时尚不知道角色，与原型一致。
 
 import { useState } from 'react';
 import { useStaffAuth } from '../auth/staffAuth';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { getStaffAuthRedirectUrl, supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { Spin } from './shared/ui';
 
 export default function InternalLogin({ sessionExpiredHint }) {
@@ -52,7 +52,9 @@ export default function InternalLogin({ sessionExpiredHint }) {
     }
     setResetBusy(true);
     setResetBanner(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(target);
+    const { error } = await supabase.auth.resetPasswordForEmail(target, {
+      redirectTo: getStaffAuthRedirectUrl('recovery'),
+    });
     setResetBusy(false);
     setResetBanner(error
       ? { kind: 'err', text: error.message || '重置链接发送失败，请稍后重试。' }

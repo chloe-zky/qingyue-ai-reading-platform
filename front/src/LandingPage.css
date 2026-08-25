@@ -103,6 +103,7 @@
   transition: opacity 200ms ease, background 200ms ease;
   -webkit-tap-highlight-color: transparent;
 }
+.landing-btn:disabled { cursor: default; opacity: 0.55; }
 
 .landing-btn-primary {
   background: #15171c;
@@ -128,3 +129,24 @@
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
+
+.landing-message {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  margin: -18px 0 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  border-left: 2px solid #8b3a2e;
+  background: #f8f4f1;
+  color: #6d342c;
+}
+.landing-message.is-ok { border-color: #66786a; background: #f2f5f2; color: #425247; }
+
+.landing-auth-form { width: 100%; display: flex; flex-direction: column; gap: 14px; padding-bottom: 24px; }
+.landing-auth-title { font-size: 15px; letter-spacing: 0.08em; margin-bottom: 2px; }
+.landing-auth-hint { margin: -2px 0 2px; color: #7e828a; font-size: 11px; line-height: 1.7; letter-spacing: 0.03em; }
+.landing-auth-field { display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: #7e828a; letter-spacing: 0.08em; }
+.landing-auth-field input { min-height: 44px; box-sizing: border-box; border: 0; border-bottom: 1px solid #cfd1d3; border-radius: 0; padding: 6px 0; background: transparent; color: #15171c; font: inherit; font-size: 14px; outline: none; }
+.landing-auth-field input:focus { border-color: #15171c; }
+.landing-auth-switch { background: transparent; border: 0; padding: 4px; color: #666b73; font: inherit; font-size: 12px; cursor: pointer; }

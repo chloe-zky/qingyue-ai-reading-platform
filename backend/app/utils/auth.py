@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.database import supabase
+from app.utils.retry import retry_transport
 
 
 class StaffRole(str, Enum):
@@ -38,7 +39,7 @@ def _unauthorized(detail: str = "登录已失效，请重新登录") -> HTTPExce
 def _load_auth_user(access_token: str):
     """Ask Supabase Auth to validate the access token and return its user."""
     try:
-        response = supabase.auth.get_user(access_token)
+        response = retry_transport(lambda: supabase.auth.get_user(access_token))
     except Exception as exc:
         raise _unauthorized() from exc
 
@@ -50,13 +51,13 @@ def _load_auth_user(access_token: str):
 
 def _load_staff_profile(user_id: str) -> dict:
     try:
-        response = (
+        response = retry_transport(lambda: (
             supabase.table("staff_profiles")
             .select("user_id,display_name,role,status")
             .eq("user_id", user_id)
             .limit(1)
             .execute()
-        )
+        ))
     except Exception as exc:
         raise HTTPException(
             status_code=503,

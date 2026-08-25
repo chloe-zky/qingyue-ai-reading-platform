@@ -1,9 +1,11 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.schemas.platform import UpdateStaffRequest
 from app.services.platform_service import (
     StaffAccountConflictError,
+    StorageHealthError,
+    check_storage_health,
     update_staff_account,
 )
 from app.utils.auth import StaffPrincipal, StaffRole
@@ -59,6 +61,27 @@ class PlatformStaffSafetyTests(unittest.TestCase):
                 )
 
 
+class PlatformStorageHealthTests(unittest.TestCase):
+    def test_storage_probe_only_lists_buckets(self):
+        storage = MagicMock()
+        storage.list_buckets.return_value = [{"name": "covers"}]
+        fake_supabase = MagicMock()
+        fake_supabase.storage = storage
+        with patch("app.services.platform_service.supabase", fake_supabase):
+            result = check_storage_health()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["bucket"], "covers")
+        storage.list_buckets.assert_called_once_with()
+
+    def test_storage_probe_reports_missing_bucket(self):
+        storage = MagicMock()
+        storage.list_buckets.return_value = [{"name": "other"}]
+        fake_supabase = MagicMock()
+        fake_supabase.storage = storage
+        with patch("app.services.platform_service.supabase", fake_supabase):
+            with self.assertRaisesRegex(StorageHealthError, "covers"):
+                check_storage_health()
+
+
 if __name__ == "__main__":
     unittest.main()
-

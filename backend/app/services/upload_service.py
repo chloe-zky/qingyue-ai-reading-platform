@@ -32,6 +32,9 @@ _EXT_BY_MIME = {
 }
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
+MAX_IMAGE_PIXELS = 24_000_000
+MAX_IMAGE_DIMENSION = 10_000
+READ_CHUNK_BYTES = 64 * 1024
 
 
 def _has_valid_signature(file_bytes: bytes, content_type: str) -> bool:
@@ -49,6 +52,62 @@ def _has_valid_signature(file_bytes: bytes, content_type: str) -> bool:
     return False
 
 
+def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
+    offset = 2
+    sof_markers = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+    while offset + 9 <= len(data):
+        if data[offset] != 0xFF:
+            offset += 1
+            continue
+        marker = data[offset + 1]
+        offset += 2
+        if marker in {0xD8, 0xD9} or 0xD0 <= marker <= 0xD7:
+            continue
+        if offset + 2 > len(data):
+            break
+        segment_size = int.from_bytes(data[offset:offset + 2], "big")
+        if segment_size < 2 or offset + segment_size > len(data):
+            break
+        if marker in sof_markers and segment_size >= 7:
+            return (
+                int.from_bytes(data[offset + 5:offset + 7], "big"),
+                int.from_bytes(data[offset + 3:offset + 5], "big"),
+            )
+        offset += segment_size
+    raise ValueError("无法读取 JPEG 像素尺寸，请重新导出后上传。")
+
+
+def _image_dimensions(data: bytes, content_type: str) -> tuple[int, int]:
+    if content_type == "image/png":
+        if len(data) < 24 or data[12:16] != b"IHDR":
+            raise ValueError("PNG 文件结构不完整，请重新导出后上传。")
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if content_type == "image/jpeg":
+        return _jpeg_dimensions(data)
+    if data[12:16] == b"VP8X" and len(data) >= 30:
+        return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+    if data[12:16] == b"VP8 " and len(data) >= 30 and data[23:26] == b"\x9d\x01\x2a":
+        return int.from_bytes(data[26:28], "little") & 0x3FFF, int.from_bytes(data[28:30], "little") & 0x3FFF
+    if data[12:16] == b"VP8L" and len(data) >= 25 and data[20] == 0x2F:
+        b1, b2, b3, b4 = data[21:25]
+        return 1 + b1 + ((b2 & 0x3F) << 8), 1 + (b2 >> 6) + (b3 << 2) + ((b4 & 0x0F) << 10)
+    raise ValueError("无法读取 WebP 像素尺寸，请重新导出后上传。")
+
+
+async def _read_bounded(file: UploadFile) -> bytes:
+    chunks = []
+    size = 0
+    while True:
+        chunk = await file.read(READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > MAX_FILE_SIZE_BYTES:
+            raise ValueError("图片体积过大，上限为 5MB。请压缩后再上传。")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _read_and_validate(file: UploadFile) -> Tuple[bytes, str, str]:
     """
     读取上传内容，做类型与大小校验。
@@ -61,18 +120,20 @@ async def _read_and_validate(file: UploadFile) -> Tuple[bytes, str, str]:
             "仅支持 JPEG / PNG / WebP。"
         )
 
-    file_bytes = await file.read()
+    file_bytes = await _read_bounded(file)
     size = len(file_bytes)
     if size == 0:
         raise ValueError("上传的图片为空文件。")
-    if size > MAX_FILE_SIZE_BYTES:
-        raise ValueError(
-            f"图片体积过大（{size / (1024 * 1024):.2f}MB），"
-            f"上限为 5MB。请压缩后再上传。"
-        )
-
     if not _has_valid_signature(file_bytes, content_type):
         raise ValueError("图片内容与声明格式不一致，请重新导出后上传。")
+
+    width, height = _image_dimensions(file_bytes, content_type)
+    if width <= 0 or height <= 0:
+        raise ValueError("图片像素尺寸无效，请重新导出后上传。")
+    if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+        raise ValueError("图片边长过大，上限为 10000 像素。")
+    if width * height > MAX_IMAGE_PIXELS:
+        raise ValueError("图片总像素过大，上限为 2400 万像素。")
 
     ext = _EXT_BY_MIME[content_type]
     return file_bytes, content_type, ext

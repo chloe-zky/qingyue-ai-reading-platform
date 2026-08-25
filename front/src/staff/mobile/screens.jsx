@@ -2,8 +2,8 @@
 // DOM / 类名 / 内联样式逐字移植自 prototype-admin/mobile-screens.jsx。
 //
 // 数据源：与桌面端一致，走 Codex 的 staff/api.js 真实接口，不用设计稿的 MOCK。
-// 原型里所有「假成功」的动作（AI 连通测试、Prompt 发布、词表编辑、策略模拟）
-// 后端尚无端点，一律明确提示未实现，不伪造结果 —— 与桌面端的处理保持一致。
+// 原型里所有「假成功」的动作都必须接真实端点，或明确提示仅能在桌面端完成，
+// 不在手机端伪造配置变更或模拟结果。
 //
 // 角色横幅 rolehero 原型写死 ACCOUNTS[role]，这里改用真实登录身份。
 
@@ -64,7 +64,18 @@ export function MAdminHome({ ctx }) {
     setTesting(true);
     try {
       const llm = await staffApi.llmStatus();
-      ctx.push(llm.configured ? 'AI 配置完整；真实连通测试端点尚未实现。' : 'AI 服务尚未完成配置。', llm.configured ? 'info' : 'err');
+      if (!llm.configured) {
+        ctx.push('AI 服务尚未完成配置。', 'err');
+        return;
+      }
+      const result = await staffApi.testLlm({
+        api_base: llm.api_base,
+        model_name: llm.model_name,
+        api_type: llm.api_type || 'openai_compatible',
+        timeout_seconds: Math.min(llm.timeout_seconds ?? 30, 60),
+      });
+      ctx.push(`AI 连接成功 · ${result.latency_ms} ms`, 'ok');
+      await load();
     } catch (error) { ctx.push(errorMessage(error), 'err'); }
     finally { setTesting(false); }
   }
@@ -100,6 +111,8 @@ export function MAdminLLM({ ctx }) {
   const [show, setShow] = useState(false);
   const [masked, setMasked] = useState('');
   const [model, setModel] = useState('');
+  const [models, setModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [base, setBase] = useState('');
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
@@ -118,8 +131,45 @@ export function MAdminLLM({ ctx }) {
   const dirty = c && (model !== (c.model_name || '') || base !== (c.api_base || '') || (editKey && newKey.trim()));
 
   function runTest() {
-    setBanner({ kind: 'info', text: '后端尚未提供上游 AI 连通测试端点；此按钮不会伪造测试结果。' });
-    ctx.push('AI 连通测试端点尚未实现', 'info');
+    setSaving(true); setBanner(null);
+    const payload = {
+      api_base: base,
+      model_name: model,
+      api_type: c.api_type || 'openai_compatible',
+      timeout_seconds: Math.min(c.timeout_seconds ?? 30, 60),
+    };
+    if (newKey.trim()) payload.api_key = newKey.trim();
+    staffApi.testLlm(payload)
+      .then((result) => {
+        setBanner({ kind: 'ok', text: `连接成功 · ${result.model_name} · ${result.latency_ms} ms` });
+        ctx.push('AI 连接测试成功', 'ok');
+      })
+      .catch((error) => {
+        const message = errorMessage(error, 'AI 连接测试失败。');
+        setBanner({ kind: 'err', text: message });
+        ctx.push(message, 'err');
+      })
+      .finally(() => setSaving(false));
+  }
+  async function refreshModels() {
+    if (!base.trim()) {
+      setBanner({ kind: 'err', text: '请先填写 API Base URL。' });
+      return;
+    }
+    setModelsLoading(true); setBanner(null);
+    try {
+      const payload = {
+        api_base: base,
+        api_type: c.api_type || 'openai_compatible',
+        timeout_seconds: Math.min(c.timeout_seconds ?? 20, 60),
+      };
+      if (newKey.trim()) payload.api_key = newKey.trim();
+      const result = await staffApi.llmModels(payload);
+      setModels(result.models || []);
+      setBanner({ kind: 'ok', text: `已读取 ${result.count || 0} 个可用 Gemini 模型。` });
+    } catch (error) {
+      setBanner({ kind: 'err', text: errorMessage(error, '模型列表读取失败。') });
+    } finally { setModelsLoading(false); }
   }
   async function save() {
     const r = await ctx.confirm({
@@ -151,7 +201,7 @@ export function MAdminLLM({ ctx }) {
       <div className="card">
         <div className="card-h"><div className="ct">连接参数</div></div>
         <div className="fld"><label className="lbl">API 类型<span className="ro">只读</span></label><input className="inp mono" value={c.api_type || 'openai_compatible'} disabled readOnly /></div>
-        <div className="fld"><label className="lbl">模型名称<span className="req">必填</span></label><input className="inp mono" value={model} onChange={(e) => setModel(e.target.value)} /></div>
+        <div className="fld"><label className="lbl">模型名称<span className="req">必填</span></label><select className="inp mono" value={model} onChange={(e) => setModel(e.target.value)}>{model && !models.includes(model) && <option value={model}>{model}（当前）</option>}{models.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="btn ghost sm" type="button" style={{ marginTop: 8 }} onClick={refreshModels} disabled={modelsLoading}>{modelsLoading ? <><MSpin />读取中…</> : <><Icon id="refresh" size={13} className="btn-ico" />刷新可用模型</>}</button><div className="help">模型列表来自当前上游，不在页面中写死。</div></div>
         <div className="fld"><label className="lbl">API Base URL<span className="req">必填</span></label><input className="inp mono" value={base} onChange={(e) => setBase(e.target.value)} inputMode="url" /><div className="help">HTTP / HTTPS 地址。</div></div>
         <div className="fld"><label className="lbl"><Icon id="key" size={12} />API Key</label>
           {!editKey ? <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span className="mono" style={{ fontSize: 13, color: 'var(--ink-2)' }}>{masked || '— 未设置 —'}</span><button className="btn ghost sm" onClick={() => setEditKey(true)}><Icon id="key" size={13} className="btn-ico" />更新密钥</button></div>
@@ -161,7 +211,7 @@ export function MAdminLLM({ ctx }) {
       </div>
       <div className="card">
         <div className="card-h"><div className="ct">连接测试</div></div>
-        <button className="btn ghost" onClick={runTest}><Icon id="plug" size={14} className="btn-ico" />测试连接</button>
+        <button className="btn ghost" onClick={runTest} disabled={saving}>{saving ? <><MSpin />测试中…</> : <><Icon id="plug" size={14} className="btn-ico" />测试连接</>}</button>
       </div>
       {banner && <div className={'banner ' + banner.kind} style={{ marginBottom: 14 }}><span className="bd" /><span className="bx">{banner.text}</span></div>}
       <button className="btn" onClick={save} disabled={saving || !dirty}>{saving ? <><MSpin />保存中…</> : '保存并启用'}</button>
@@ -236,23 +286,32 @@ export function MAdminHealth({ ctx }) {
     { id: 'api', name: '后端 API', icon: 'plug', status: 'warn', ms: null, note: '等待检查' },
     { id: 'db', name: 'Supabase', icon: 'db', status: 'warn', ms: null, note: '等待检查' },
     { id: 'ai', name: 'AI 服务', icon: 'bolt', status: 'warn', ms: null, note: '仅检查配置完整性' },
-    { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '后端尚未提供存储健康探针' },
+    { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '等待检查' },
   ]);
 
   const check = useCallback(async (notify = true) => {
     setChecking(true);
     const started = performance.now();
-    const [apiR, dbR, llmR] = await Promise.allSettled([staffApi.health(), staffApi.staff(), staffApi.llmStatus()]);
+    const [apiR, dbR, llmR, storageR] = await Promise.allSettled([staffApi.health(), staffApi.staff(), staffApi.llmStatus(), staffApi.storageHealth()]);
     const elapsed = Math.max(1, Math.round(performance.now() - started));
     const llm = llmR.status === 'fulfilled' ? llmR.value : null;
+    let aiTest = null;
+    if (notify && llm?.configured) {
+      aiTest = await staffApi.testLlm({
+        api_base: llm.api_base,
+        model_name: llm.model_name,
+        api_type: llm.api_type || 'openai_compatible',
+        timeout_seconds: Math.min(llm.timeout_seconds ?? 30, 60),
+      }).then((value) => ({ status: 'fulfilled', value }), (reason) => ({ status: 'rejected', reason }));
+    }
     setHealth([
       { id: 'api', name: '后端 API', icon: 'plug', status: apiR.status === 'fulfilled' ? 'ok' : 'err', ms: elapsed, note: apiR.status === 'fulfilled' ? '健康接口响应正常' : errorMessage(apiR.reason) },
       { id: 'db', name: 'Supabase', icon: 'db', status: dbR.status === 'fulfilled' ? 'ok' : 'err', ms: elapsed, note: dbR.status === 'fulfilled' ? '员工数据读取正常' : errorMessage(dbR.reason) },
-      { id: 'ai', name: 'AI 服务', icon: 'bolt', status: llm?.configured ? 'warn' : 'err', ms: null, note: llm?.configured ? `${llm.model_name || '模型'} 已配置，未做上游连通测试` : 'AI 服务尚未完整配置' },
-      { id: 'storage', name: '文件存储', icon: 'cloud', status: 'warn', ms: null, note: '后端尚未提供存储健康探针' },
+      { id: 'ai', name: 'AI 服务', icon: 'bolt', status: aiTest?.status === 'fulfilled' ? 'ok' : (aiTest?.status === 'rejected' || !llm?.configured ? 'err' : 'warn'), ms: aiTest?.value?.latency_ms ?? null, note: aiTest?.status === 'fulfilled' ? `${aiTest.value.model_name} 连接正常` : (aiTest?.status === 'rejected' ? errorMessage(aiTest.reason) : (llm?.configured ? `${llm.model_name || '模型'} 已配置；点击立即检查可做真实探测` : 'AI 服务尚未完整配置')) },
+      { id: 'storage', name: '文件存储', icon: 'cloud', status: storageR.status === 'fulfilled' ? 'ok' : 'err', ms: storageR.value?.latency_ms ?? null, note: storageR.status === 'fulfilled' ? storageR.value.message : errorMessage(storageR.reason) },
     ]);
     setAt('刚刚'); setChecking(false);
-    if (notify) ctx.push('已完成可用探针检查；未提供探针的项目保持“注意”。', 'info');
+    if (notify) ctx.push(aiTest?.status === 'rejected' ? '系统检查完成，AI 上游连接异常。' : '系统真实探针检查完成。', aiTest?.status === 'rejected' ? 'err' : 'ok');
   }, [ctx]);
   useEffect(() => { const t = setTimeout(() => check(false), 0); return () => clearTimeout(t); }, [check]);
 
@@ -387,22 +446,33 @@ export function MLeadPrompt({ ctx }) {
 
 export function MLeadTags() {
   const [versions, setVersions] = useState([]);
+  const [detail, setDetail] = useState(null);
+  const [categoryId, setCategoryId] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
-    try { setVersions(await staffApi.vocabularyVersions()); }
+    try {
+      const rows = await staffApi.vocabularyVersions();
+      setVersions(rows);
+      const current = rows.find((item) => item.status === 'published') || rows[0];
+      if (current) {
+        const value = await staffApi.vocabularyVersion(current.id);
+        setDetail(value);
+        setCategoryId(value.categories?.[0]?.id || '');
+      } else {
+        setDetail(null); setCategoryId('');
+      }
+    }
     catch (error) { setLoadError(errorMessage(error, '词表版本读取失败。')); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, [load]);
+  const category = detail?.categories?.find((item) => item.id === categoryId) || detail?.categories?.[0];
 
   return (
     <div className="scroll fade-in"><div className="pad">
-      {/* 原型此屏是「分类 chips + 词条列表」。后端目前只提供词表版本列表，
-          分类与词条读取接口尚未实现，故此处按版本渲染同一套 lrow 结构。 */}
       <p className="lead-p">AI 打标与推荐依据的标签词表版本（只读浏览）。</p>
-      <div className="banner info" style={{ marginBottom: 14 }}><span className="bd" /><span className="bx">已接入真实词表版本；分类与词条读取接口尚未实现。</span></div>
       <div className="card pad0">
         {loading && <MLoading rows={3} />}
         {!loading && loadError && <MError desc={loadError} onRetry={load} />}
@@ -412,6 +482,15 @@ export function MLeadTags() {
           <MBadge kind={v.status === 'published' ? 'ok' : (v.status === 'draft' ? 'warn' : 'mute')}>{v.status === 'published' ? '已发布' : (v.status === 'draft' ? '草稿' : '已归档')}</MBadge>
         </div>)}
       </div>
+      {!loading && !loadError && detail?.categories?.length > 0 && <>
+        <div className="seg-ctl" style={{ margin: '14px 0', overflowX: 'auto', justifyContent: 'flex-start' }}>
+          {detail.categories.map((item) => <button key={item.id} className={category?.id === item.id ? 'on' : ''} onClick={() => setCategoryId(item.id)}>{item.name}</button>)}
+        </div>
+        <div className="card pad0">
+          <div className="lrow" style={{ cursor: 'default' }}><div className="lr-t"><div className="lr-n">{category?.name}</div><div className="lr-s">{category?.description || '受控词条'} · {category?.terms?.length || 0} 个</div></div></div>
+          {(category?.terms || []).map((term) => <div key={term.id} className="lrow" style={{ cursor: 'default' }}><div className="lr-t"><div className="lr-n">{term.name}</div><div className="lr-s">{term.description || (term.synonyms?.length ? `同义词：${term.synonyms.join('、')}` : '—')}</div></div><MBadge kind={term.status === 'active' ? 'ok' : 'mute'}>{term.status === 'active' ? '启用' : '停用'}</MBadge></div>)}
+        </div>
+      </>}
       <DeskCue>新增、停用、合并标签及发布词表版本请在桌面端完成。</DeskCue>
     </div></div>
   );
@@ -423,15 +502,36 @@ export function MLeadReco({ ctx }) {
   const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
-    try { setStrategies((await staffApi.strategies()).map(toUiStrategy)); }
+    try {
+      const rows = await staffApi.strategies();
+      const mapped = rows.map(toUiStrategy);
+      if (mapped.length > 0) {
+        const current = mapped.find((item) => item.status === 'published') || mapped[0];
+        const detail = await staffApi.strategy(current.id);
+        const version = detail.versions.find((item) => item.status === 'published') || detail.versions[0];
+        const weights = version?.settings?.weights || {};
+        setStrategies(mapped.map((item) => item.id === current.id ? {
+          ...item,
+          ver: versionLabel(version?.version_no),
+          status: version?.status || item.status,
+          weights: {
+            时代设定: weights.setting,
+            故事基调: weights.story_tone,
+            关系内核: weights.relationship_core,
+          },
+        } : item));
+      } else {
+        setStrategies([]);
+      }
+    }
     catch (error) { setLoadError(errorMessage(error, '推荐策略读取失败。')); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, [load]);
 
   const live = strategies.find((s) => s.status === 'published') || strategies[0];
-  // 权重取自当前生效策略版本的 settings；后端未返回时不编造数值。
-  const weights = live?.weights ? Object.entries(live.weights) : [];
+  // 权重取自当前生效策略版本的 settings；过滤缺失字段，不编造数值。
+  const weights = live?.weights ? Object.entries(live.weights).filter(([, value]) => Number.isFinite(value)) : [];
 
   return (
     <div className="scroll fade-in"><div className="pad">
@@ -446,7 +546,7 @@ export function MLeadReco({ ctx }) {
         </div>
         <div className="card"><div className="card-h"><div className="ct">策略模拟</div></div>
           <div className="card-hint">模拟结果仅用于评估，不会影响线上推荐。</div>
-          <button className="btn subtle" onClick={() => ctx.push('策略模拟接口尚未实现', 'info')}><Icon id="sim" size={14} className="btn-ico" />运行模拟</button>
+          <button className="btn subtle" onClick={() => ctx.push('策略模拟已实现，请在桌面端运行并查看结果。', 'info')}><Icon id="sim" size={14} className="btn-ico" />运行模拟</button>
         </div>
       </>}
       <DeskCue>调整权重、阈值与发布策略请在桌面端「推荐策略」中完成。</DeskCue>
@@ -488,6 +588,7 @@ export function MReviewHome({ ctx }) {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [claimingId, setClaimingId] = useState(null);
 
   const load = useCallback(async (notify = false) => {
     setLoadError('');
@@ -510,6 +611,18 @@ export function MReviewHome({ ctx }) {
     finally { setRefreshing(false); }
   }
 
+  async function openReview(submission) {
+    setClaimingId(submission.bookId);
+    try {
+      await staffApi.claimSubmission(submission.bookId);
+      ctx.push(`已认领 ${submission.id}`, 'ok');
+      ctx.openReview();
+    } catch (error) {
+      ctx.push(errorMessage(error, '稿件认领失败，请刷新列表。'), 'err');
+      await load().catch(() => {});
+    } finally { setClaimingId(null); }
+  }
+
   return (
     <div className="scroll fade-in"><div className="pad">
       <RoleHero role="review" />
@@ -525,14 +638,12 @@ export function MReviewHome({ ctx }) {
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14.5 }}>我的待审队列 <span className="muted numf">· {queue.length}</span></div>
           <button className="btn ghost sm" onClick={refresh} disabled={refreshing}>{refreshing ? <MSpin /> : <Icon id="refresh" size={14} />}</button>
         </div>
-        {/* 原型此处是「模拟：稿件被他人处理」按钮 + 冲突 sheet，属于演示用的假冲突。
-            与桌面端一致改为说明：真实并发冲突由审稿提交接口返回 409 表达。 */}
-        <div style={{ padding: '10px 15px 0' }}><span className="muted" style={{ fontSize: 11.5 }}>真实数据 · 并发冲突由审稿提交接口返回 409</span></div>
+        <div style={{ padding: '10px 15px 0' }}><span className="muted" style={{ fontSize: 11.5 }}>真实数据 · 30 分钟审稿认领租约</span></div>
         {loading && <MLoading rows={3} />}
         {!loading && loadError && <MError desc={loadError} onRetry={refresh} />}
         {!loading && !loadError && (queue.length ? queue.map((q) => <div key={q.id} className="lrow" style={{ cursor: 'default' }}>
-          <div className="lr-t"><div className="lr-n">{q.title}</div><div className="lr-s mono">{q.id} · {q.author} · {q.words} · {q.at}</div></div>
-          <div className="lr-meta"><MBadge kind={q.stage === '待初审' ? 'info' : 'warn'}>{q.stage}</MBadge><button className="btn sm" onClick={() => ctx.openReview()}>进入审稿</button></div>
+          <div className="lr-t"><div className="lr-n">{q.title}</div><div className="lr-s mono">{q.id} · 第 {q.revisionNo} 稿 · {q.author} · {q.words}</div></div>
+          <div className="lr-meta"><MBadge kind={q.claimedByMe ? 'ok' : (q.stage === '待初审' ? 'info' : 'warn')}>{q.claimedByMe ? '我已认领' : q.stage}</MBadge><button className="btn sm" onClick={() => openReview(q)} disabled={claimingId === q.bookId}>{claimingId === q.bookId ? <MSpin /> : (q.claimedByMe ? '继续' : '认领')}</button></div>
         </div>) : <MEmpty title="暂无待审稿件" desc="新的投稿到达后会出现在这里。" />)}
       </div>
       <div className="banner mute" style={{ background: 'var(--panel-2)', borderColor: 'var(--rule)', color: 'var(--ink-2)' }}><span className="bd" style={{ background: 'var(--ink-4)' }} /><span className="bx">审稿编辑不可见 AI 配置、员工账号与编辑规则编辑入口，仅可读取已发布版本。</span></div>

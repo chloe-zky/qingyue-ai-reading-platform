@@ -32,6 +32,23 @@ FRONTEND_ORIGINS = _parse_origins(
     os.getenv("FRONTEND_ORIGINS", FRONTEND_ORIGIN)
 )
 
+
+def _parse_hosts(raw_value: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            value.strip().lower().rstrip(".")
+            for value in (raw_value or "").split(",")
+            if value.strip()
+        )
+    )
+
+
+LLM_ALLOWED_HOSTS = _parse_hosts(os.getenv("LLM_ALLOWED_HOSTS", ""))
+LLM_CONFIG_MASTER_KEYS = os.getenv("LLM_CONFIG_MASTER_KEYS", "").strip()
+LLM_TRUST_PROXY_DNS = os.getenv("LLM_TRUST_PROXY_DNS", "false").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+
 # 手机热点地址经常变化。开发环境只额外放行常见私网地址的 Vite 端口，
 # 生产环境仍严格使用 FRONTEND_ORIGINS 白名单。
 FRONTEND_ORIGIN_REGEX = (
@@ -41,3 +58,22 @@ FRONTEND_ORIGIN_REGEX = (
     if APP_ENV == "development"
     else None
 )
+
+
+def _validate_runtime_config() -> None:
+    if APP_ENV not in {"development", "test", "production"}:
+        raise ValueError("APP_ENV 只允许 development、test 或 production")
+    if not SUPABASE_URL.startswith("https://"):
+        raise ValueError("SUPABASE_URL 必须使用 HTTPS")
+    if APP_ENV != "production":
+        return
+    if not FRONTEND_ORIGINS:
+        raise ValueError("生产环境必须配置 FRONTEND_ORIGINS")
+    insecure = [origin for origin in FRONTEND_ORIGINS if not origin.startswith("https://")]
+    if insecure:
+        raise ValueError("生产环境 FRONTEND_ORIGINS 必须全部使用 HTTPS")
+    if not LLM_ALLOWED_HOSTS:
+        raise ValueError("生产环境必须配置 LLM_ALLOWED_HOSTS")
+
+
+_validate_runtime_config()

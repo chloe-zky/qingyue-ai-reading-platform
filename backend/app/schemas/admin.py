@@ -1,7 +1,7 @@
 from typing import Literal, Optional
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.utils.outbound_url import validate_llm_api_base
 
 class UpdateLLMConfigRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -9,7 +9,7 @@ class UpdateLLMConfigRequest(BaseModel):
     api_base: str = Field(min_length=8, max_length=2048)
     # 留空/省略表示保留数据库中的现有密钥；首次配置仍必须提供。
     api_key: Optional[str] = Field(default=None, min_length=1, max_length=4096)
-    model_name: str = Field(default="gemini-2.5-pro", min_length=1, max_length=120)
+    model_name: str = Field(default="gemini-3.5-flash", min_length=1, max_length=120)
     api_type: Literal["openai_compatible"] = "openai_compatible"
     # 省略时保留当前值，便于不同终端按需提交局部配置。
     timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
@@ -25,7 +25,44 @@ class UpdateLLMConfigRequest(BaseModel):
     @field_validator("api_base")
     @classmethod
     def validate_api_base(cls, value: str) -> str:
-        parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("API Base 必须是有效的 HTTP(S) 地址")
-        return value.rstrip("/")
+        return validate_llm_api_base(value, resolve_dns=False)
+
+
+class TestLLMConfigRequest(UpdateLLMConfigRequest):
+    """Test the page's current values without persisting them."""
+
+    timeout_seconds: Optional[int] = Field(default=30, ge=1, le=60)
+    max_retries: Optional[int] = Field(default=0, ge=0, le=0)
+
+
+class TestLLMConfigResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    model_name: str
+    latency_ms: int = Field(ge=0)
+    message: str
+
+
+class DiscoverLLMModelsRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    api_base: str = Field(min_length=8, max_length=2048)
+    api_key: Optional[str] = Field(default=None, min_length=1, max_length=4096)
+    api_type: Literal["openai_compatible"] = "openai_compatible"
+    timeout_seconds: int = Field(default=20, ge=1, le=60)
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def blank_api_key_means_keep_existing(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("api_base")
+    @classmethod
+    def validate_api_base(cls, value: str) -> str:
+        return validate_llm_api_base(value, resolve_dns=False)
+
+
+class LLMModelListResponse(BaseModel):
+    models: list[str]
+    count: int = Field(ge=0)

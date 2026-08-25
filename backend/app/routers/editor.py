@@ -13,7 +13,9 @@ from app.services.editor_service import (
     SubmissionNotFoundError,
     SubmissionStateConflictError,
     approve_submission,
+    claim_submission,
     get_pending_submissions,
+    release_submission_claim,
     reject_submission,
     request_submission_revision,
 )
@@ -56,7 +58,7 @@ def api_get_submissions(
     principal: StaffPrincipal = Depends(require_review_editor),
 ):
     try:
-        return get_pending_submissions(limit)
+        return get_pending_submissions(limit, principal.user_id)
     except Exception:
         logger.exception("读取待审稿件失败")
         raise HTTPException(status_code=500, detail="读取待审稿件失败，请稍后重试。")
@@ -68,7 +70,7 @@ def api_approve_submission(
     principal: StaffPrincipal = Depends(require_review_editor),
 ):
     try:
-        result = approve_submission(book_id, req)
+        result = approve_submission(book_id, req, principal.user_id)
         write_audit_log(
             principal,
             domain="review",
@@ -109,7 +111,7 @@ def api_reject_submission(
     principal: StaffPrincipal = Depends(require_review_editor),
 ):
     result = _handle_editor_decision(
-        book_id, lambda: reject_submission(book_id, req.reason)
+        book_id, lambda: reject_submission(book_id, req.reason, principal.user_id)
     )
     write_audit_log(
         principal,
@@ -130,7 +132,7 @@ def api_request_submission_revision(
     principal: StaffPrincipal = Depends(require_review_editor),
 ):
     result = _handle_editor_decision(
-        book_id, lambda: request_submission_revision(book_id, req.note)
+        book_id, lambda: request_submission_revision(book_id, req.note, principal.user_id)
     )
     write_audit_log(
         principal,
@@ -142,3 +144,35 @@ def api_request_submission_revision(
         after_data={"article_status": result.get("article_status")},
     )
     return result
+
+
+@router.post("/submissions/{book_id}/claim")
+def api_claim_submission(
+    book_id: int,
+    principal: StaffPrincipal = Depends(require_review_editor),
+):
+    result = _handle_editor_decision(
+        book_id, lambda: claim_submission(book_id, principal.user_id)
+    )
+    write_audit_log(
+        principal,
+        domain="review",
+        action="submission.claim",
+        resource_type="book",
+        resource_id=book_id,
+        summary="认领待审稿件",
+        after_data={"expires_at": result.get("expires_at")},
+    )
+    return result
+
+
+@router.delete("/submissions/{book_id}/claim")
+def api_release_submission_claim(
+    book_id: int,
+    principal: StaffPrincipal = Depends(require_review_editor),
+):
+    try:
+        return release_submission_claim(book_id, principal.user_id)
+    except Exception:
+        logger.exception("释放稿件认领失败: book_id=%s", book_id)
+        raise HTTPException(status_code=500, detail="释放稿件认领失败，请稍后重试。")

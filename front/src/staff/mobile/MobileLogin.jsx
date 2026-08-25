@@ -4,13 +4,13 @@
 // 与桌面 InternalLogin 同样的两处落地改动：
 // 1. 原型的硬编码 M_LOGIN 演示登录换成真实 Supabase Auth；角色由后端
 //    GET /api/internal/me 返回，账号禁用由后端 403 表达，不在前端表里判定。
-// 2. 早期演示凭据已删除，底部提示块改成真实账号开通指引。
+// 2. 底部旧演示账号块仅保留布局，内容已替换为真实开通指引。
 //
 // 登录页恒为文艺主题（theme-lit），与原型一致 —— 此时尚不知道角色。
 
 import { useState } from 'react';
 import { useStaffAuth } from '../../auth/staffAuth';
-import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
+import { getStaffAuthRedirectUrl, supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 import { MSpin } from './core';
 
 export default function MobileLogin({ hint }) {
@@ -47,7 +47,9 @@ export default function MobileLogin({ hint }) {
     }
     setResetBusy(true);
     setResetBanner(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(target);
+    const { error } = await supabase.auth.resetPasswordForEmail(target, {
+      redirectTo: getStaffAuthRedirectUrl('recovery'),
+    });
     setResetBusy(false);
     setResetBanner(error
       ? { kind: 'err', text: error.message || '重置链接发送失败，请稍后重试。' }

@@ -10,8 +10,8 @@ import { StepScreen }     from './reader/StepScreen.jsx';
 import { LoadingScreen }  from './reader/LoadingScreen.jsx';
 import { ListScreen }     from './reader/ListScreen.jsx';
 import { ReadingScreen }  from './reader/ReadingScreen.jsx';
+import { apiFetch } from './lib/apiClient.js';
 
-const API_BASE  = `http://${window.location.hostname}:8000`;
 const WARM_KEY  = 'reader.warmMode.v1';
 
 const STEPS = [
@@ -141,13 +141,11 @@ export default function ReaderPage() {
     setPhase('loading');
     const t0 = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/api/recommendations`, {
+      const data = await apiFetch('/api/recommendations', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(selections),
+        auth: 'optional-reader',
+        body: selections,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setRequestId(data.request_id  || '');
       setArticles(data.results      || []);
       setApiError(null);

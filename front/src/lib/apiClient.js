@@ -9,19 +9,43 @@
 // 把这三档语义收在 ApiError 上，调用方只判断 err.isUnauthorized / isForbidden /
 // isUnavailable，不再各自解析 status，避免「403 也把人踢下线」这类错配。
 
+import { getReaderAccessToken } from './readerSupabaseClient';
 import { getAccessToken } from './supabaseClient';
 
-/** 未显式配置时按当前主机名推断，兼容手机热点/局域网调试。 */
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') ||
-  `http://${window.location.hostname}:8000`;
+function resolveApiBase() {
+  const configured = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+  if (!configured) {
+    if (import.meta.env.PROD) {
+      throw new Error('生产构建缺少 VITE_API_BASE_URL，已拒绝回退到本机端口。');
+    }
+    return `http://${window.location.hostname}:8000`;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error('VITE_API_BASE_URL 必须是完整的 HTTP(S) 地址。');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('VITE_API_BASE_URL 只允许 HTTP(S) 地址。');
+  }
+  if (import.meta.env.PROD && parsed.protocol !== 'https:') {
+    throw new Error('生产环境的 VITE_API_BASE_URL 必须使用 HTTPS。');
+  }
+  return configured;
+}
+
+/** 开发环境自动适配手机热点；生产环境必须显式配置 HTTPS 后端地址。 */
+const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
-  constructor(status, detail) {
+  constructor(status, detail, requestId = '') {
     super(detail);
     this.name = 'ApiError';
     this.status = status;
     this.detail = detail;
+    this.requestId = requestId;
   }
   get isUnauthorized() { return this.status === 401; }
   get isForbidden() { return this.status === 403; }
@@ -73,9 +97,12 @@ function readDetail(payload, fallback) {
  * @throws {ApiError}
  */
 export async function apiFetch(path, options = {}) {
-  const { method = 'GET', body, signal, auth = true } = options;
+  const {
+    method = 'GET', body, signal, auth = 'staff', keepalive = false,
+    headers: suppliedHeaders = {},
+  } = options;
 
-  const headers = {};
+  const headers = { ...suppliedHeaders };
   let payload;
   if (body instanceof FormData) {
     // 交给浏览器自动带 multipart boundary，手动设置反而会坏。
@@ -85,18 +112,25 @@ export async function apiFetch(path, options = {}) {
     payload = JSON.stringify(body);
   }
 
-  if (auth) {
-    const token = await getAccessToken();
-    if (!token) {
-      broadcastUnauthorized();
-      throw new ApiError(401, '登录已失效，请重新登录');
-    }
-    headers.Authorization = `Bearer ${token}`;
+  let token = '';
+  if (auth === true || auth === 'staff') token = await getAccessToken();
+  else if (auth === 'reader' || auth === 'optional-reader') {
+    token = await getReaderAccessToken();
   }
+
+  if ((auth === true || auth === 'staff' || auth === 'reader') && !token) {
+    if (auth === true || auth === 'staff') {
+      broadcastUnauthorized();
+    }
+    throw new ApiError(401, auth === 'reader' ? '请先登录读者账号' : '登录已失效，请重新登录');
+  }
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: payload, signal });
+    res = await fetch(`${API_BASE}${path}`, {
+      method, headers, body: payload, signal, keepalive,
+    });
   } catch (e) {
     if (e?.name === 'AbortError') throw e;
     throw new ApiError(0, '无法连接服务器，请检查网络或后端是否已启动');
@@ -112,8 +146,13 @@ export async function apiFetch(path, options = {}) {
   }
 
   if (!res.ok) {
-    const error = new ApiError(res.status, readDetail(data, `请求失败（${res.status}）`));
-    if (error.isUnauthorized) broadcastUnauthorized();
+    const requestId = res.headers.get('x-request-id') || data?.request_id || '';
+    const error = new ApiError(
+      res.status,
+      readDetail(data, `请求失败（${res.status}）`),
+      requestId,
+    );
+    if (error.isUnauthorized && (auth === true || auth === 'staff')) broadcastUnauthorized();
     throw error;
   }
   return data;

@@ -19,13 +19,42 @@ export const supabase = isSupabaseConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        // 本项目没有 magic link / OAuth 回调，且 App.jsx 用 #studio 做模式切换，
-        // 关掉 URL 探测以免 supabase-js 误消费我们自己的 hash。
-        detectSessionInUrl: false,
+        // 邀请与找回密码使用 Supabase implicit flow。客户端必须先消费 URL
+        // fragment 中的会话，StaffPasswordSetup 才能调用 updateUser 设置新密码。
+        detectSessionInUrl: true,
         storageKey: 'novel-recommend.staff.auth',
       },
     })
   : null;
+
+const AUTH_ACTIONS = new Set(['invite', 'recovery']);
+
+/** 当前 URL 是否来自员工邀请 / 密码重置邮件。 */
+export function getStaffAuthAction() {
+  if (typeof window === 'undefined') return null;
+  const action = new URLSearchParams(window.location.search).get('auth_action');
+  return AUTH_ACTIONS.has(action) ? action : null;
+}
+
+/**
+ * 生成员工认证邮件的前端回跳地址。
+ * 保留当前 origin，开发时可同时兼容 localhost、127.0.0.1 与手机热点地址；
+ * 对应 origin 必须同时加入 Supabase Auth 的 Redirect URLs allow list。
+ */
+export function getStaffAuthRedirectUrl(action) {
+  if (typeof window === 'undefined') return '';
+  if (!AUTH_ACTIONS.has(action)) throw new Error('不支持的员工认证动作');
+  const target = new URL(window.location.origin);
+  target.pathname = '/studio/login';
+  target.searchParams.set('auth_action', action);
+  return target.toString();
+}
+
+/** 完成或放弃认证动作后移除 token、错误片段与临时查询参数。 */
+export function clearStaffAuthCallbackUrl() {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState({}, '', window.location.pathname);
+}
 
 /**
  * 取当前可用的 access_token；supabase-js 会在临近过期时自动续期。

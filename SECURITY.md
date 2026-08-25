@@ -14,6 +14,6 @@ If a credential is exposed, revoke or rotate it first, then remove it from every
 
 ## Known pre-production limits
 
-- Author identity and manuscript ownership are not yet enforced by account-level authentication.
+- Author access currently relies on a high-entropy receipt rather than a full author account and ownership model.
 - The included SQL migrations extend an existing project schema; they do not initialize every base business table from an empty database.
 - Production deployment requires an explicit CORS allowlist, Supabase RLS review, separate test data, and end-to-end authorization tests.

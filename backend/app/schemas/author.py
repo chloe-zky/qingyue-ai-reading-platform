@@ -15,3 +15,8 @@ class AuthorArticleCreate(BaseModel):
     sample: str = Field(min_length=1, max_length=5000)
     full_content: Optional[str] = Field(default="", max_length=500_000)
     cover_image_url: Optional[str] = ""  # 接受但忽略，仅为向后兼容
+    revision_reference: Optional[str] = Field(default=None, min_length=20, max_length=160)
+
+
+class AuthorStatusBatchRequest(BaseModel):
+    references: list[str] = Field(default_factory=list, max_length=50)

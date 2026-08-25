@@ -114,6 +114,7 @@
   transition: opacity 0.15s ease;
 }
 .minetab-row:active { opacity: 0.82; }
+.minetab-row:disabled { cursor: default; }
 
 .minetab-row-label { color: var(--mt-ink); }
 
@@ -167,3 +168,36 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+.minetab-list-view { flex: 1; overflow-y: auto; padding: calc(22px + env(safe-area-inset-top, 0px)) 22px 32px; }
+.minetab-list-view h2 { margin: 28px 0 22px; font-family: var(--mt-serif); font-size: 22px; letter-spacing: 0.04em; }
+.minetab-state { padding: 28px 0; color: var(--mt-ink-3); font-size: 13px; line-height: 1.7; }
+.minetab-state.is-error { color: var(--mt-accent); }
+.minetab-state.is-success { color: #526a58; }
+.minetab-books { border-top: 1px solid var(--mt-rule); }
+.minetab-book { display: flex; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--mt-rule); }
+.minetab-book-open { min-width: 0; flex: 1; display: flex; gap: 12px; align-items: center; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.minetab-book-open:active { opacity: 0.78; }
+.minetab-book-cover { width: 48px; height: 64px; flex: 0 0 auto; background: var(--mt-paper-soft) center / cover no-repeat; }
+.minetab-book-main { min-width: 0; flex: 1; }
+.minetab-book-title { font-family: var(--mt-serif); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.minetab-book-author { color: var(--mt-ink-3); font-size: 11px; margin-top: 5px; }
+.minetab-remove { border: 0; background: transparent; color: var(--mt-ink-3); font: inherit; font-size: 11px; cursor: pointer; }
+.minetab-progress { height: 2px; margin-top: 10px; background: var(--mt-rule); overflow: hidden; }
+.minetab-progress span { display: block; height: 100%; background: var(--mt-accent); }
+.minetab-account-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; color: var(--mt-ink-3); font-size: 11px; }
+.minetab-account-field input { min-height: 44px; border: 0; border-bottom: 1px solid var(--mt-rule); border-radius: 0; background: transparent; color: var(--mt-ink); font: inherit; font-size: 14px; outline: none; }
+.minetab-save { width: 100%; min-height: 46px; border: 1px solid var(--mt-ink); background: var(--mt-ink); color: var(--mt-paper); font: inherit; cursor: pointer; }
+.minetab-save:disabled { opacity: 0.5; }
+.minetab-reset-password { width: 100%; min-height: 46px; margin-top: 12px; border: 1px solid var(--mt-rule); background: transparent; color: var(--mt-ink-2); font: inherit; cursor: pointer; }
+.minetab-reset-password:disabled { opacity: 0.5; }
+.minetab-personalization { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 4px 0 22px; padding: 14px 0; border-top: 1px solid var(--mt-rule); border-bottom: 1px solid var(--mt-rule); }
+.minetab-personalization div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.minetab-personalization strong { color: var(--mt-ink); font-size: 13px; font-weight: 500; }
+.minetab-personalization span { color: var(--mt-ink-3); font-size: 10.5px; line-height: 1.6; }
+.minetab-switch { position: relative; flex: 0 0 auto; width: 42px; height: 24px; border: 0; border-radius: 999px; padding: 2px; background: var(--mt-rule); cursor: pointer; transition: background 0.18s ease; }
+.minetab-switch > span { display: block; width: 20px; height: 20px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgba(30,42,46,0.18); transition: transform 0.18s ease; }
+.minetab-switch.is-on { background: var(--mt-accent); }
+.minetab-switch.is-on > span { transform: translateX(18px); }
+.minetab-switch:disabled { opacity: 0.5; }
+.minetab-reading-host { position: relative; flex: 1; width: 100%; overflow: hidden; }

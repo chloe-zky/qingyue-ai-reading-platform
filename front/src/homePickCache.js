@@ -10,30 +10,29 @@
 //   - 不缓存失败：第一次失败后下次访问仍会重试
 //   - 同会话内 pick 稳定（首次随机后不再变），与之前 HomeTab 行为一致
 
-const API_BASE = `http://${window.location.hostname}:8000`;
+import { apiFetch } from './lib/apiClient';
 
 let inFlight = null;   // Promise<void> | null
 let resolved = null;   // { pick, requestId } | null  (pick may be null = no candidate)
+let resolvedAudience = null; // 'anonymous' | reader user id | null
 
 function preheatImage(url) {
   if (!url) return;
   try { const img = new Image(); img.src = url; } catch { /* ignore */ }
 }
 
-function startFetch() {
+function startFetch(readerId = null) {
   inFlight = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/recommendations`, {
+      const data = await apiFetch('/api/recommendations', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
+        auth: readerId ? 'reader' : false,
+        body: {
           setting_tags: [],
           story_tone_tags: [],
           relationship_core_tags: [],
-        }),
+        },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       const list = Array.isArray(data?.results) ? data.results : [];
       const withCover = list.filter((b) => (b.cover_image_url || '').trim());
       const pick = withCover.length > 0
@@ -41,9 +40,11 @@ function startFetch() {
         : null;
       if (pick) preheatImage(pick.cover_image_url);
       resolved = { pick, requestId: data?.request_id || '' };
+      resolvedAudience = readerId || 'anonymous';
     } catch {
       // 失败不写 resolved——下次调用会重新尝试
       resolved = null;
+      resolvedAudience = null;
     } finally {
       inFlight = null;
     }
@@ -55,7 +56,7 @@ function startFetch() {
  */
 export function primeHomePick() {
   if (resolved || inFlight) return;
-  startFetch();
+  startFetch(null);
 }
 
 /**
@@ -64,9 +65,11 @@ export function primeHomePick() {
  * - in-flight   → 等待同一个 promise
  * - 都没有      → 起一次新的 fetch
  */
-export async function getHomePick() {
-  if (resolved) return resolved;
-  if (!inFlight) startFetch();
+export async function getHomePick({ readerId = null } = {}) {
+  if (resolved && (!readerId || resolvedAudience === readerId)) return resolved;
+  if (inFlight) await inFlight;
+  if (resolved && (!readerId || resolvedAudience === readerId)) return resolved;
+  if (!inFlight) startFetch(readerId);
   await inFlight;
   return resolved || { pick: null, requestId: '' };
 }

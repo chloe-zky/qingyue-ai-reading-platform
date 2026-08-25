@@ -1,5 +1,6 @@
 import copy
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -148,6 +149,42 @@ class ApproveSubmissionTests(unittest.TestCase):
 
 
 class EditorDecisionTests(unittest.TestCase):
+    def test_requires_current_editor_to_own_active_claim(self):
+        fake = FakeSupabase(
+            books=[{
+                "id": 8,
+                "status": "pending_review",
+                "review_claimed_by": "other-editor",
+                "review_claim_expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=20)
+                ).isoformat(),
+            }],
+            tags=[],
+        )
+
+        with patch("app.services.editor_service.supabase", fake):
+            with self.assertRaisesRegex(SubmissionStateConflictError, "先认领"):
+                reject_submission(8, "不通过", "current-editor")
+
+    def test_claim_owner_can_submit_decision_and_claim_is_released(self):
+        fake = FakeSupabase(
+            books=[{
+                "id": 8,
+                "status": "pending_review",
+                "review_claimed_by": "current-editor",
+                "review_claim_expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=20)
+                ).isoformat(),
+            }],
+            tags=[],
+        )
+
+        with patch("app.services.editor_service.supabase", fake):
+            result = reject_submission(8, "不通过", "current-editor")
+
+        self.assertEqual(result["article_status"], "rejected")
+        self.assertIsNone(fake.rows["books"][0]["review_claimed_by"])
+
     def test_rejects_pending_submission_with_feedback(self):
         fake = FakeSupabase(
             books=[{"id": 8, "status": "pending_review"}],

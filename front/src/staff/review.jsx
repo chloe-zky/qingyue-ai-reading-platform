@@ -17,6 +17,7 @@ export function ReviewWorkspace({ ctx }) {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [claimingId, setClaimingId] = useState(null);
 
   const loadWorkspace = useCallback(async (notify = false) => {
     setLoadError('');
@@ -41,7 +42,17 @@ export function ReviewWorkspace({ ctx }) {
     catch (error) { setLoadError(errorMessage(error)); ctx.push(errorMessage(error), 'err'); }
     finally { setRefreshing(false); }
   }
-  function openFull() { ctx.openReview(); }
+  async function openFull(submission) {
+    setClaimingId(submission.bookId);
+    try {
+      await staffApi.claimSubmission(submission.bookId);
+      ctx.push(`已认领 ${submission.id}，30 分钟内仅你可以提交决定`, 'ok');
+      ctx.openReview();
+    } catch (error) {
+      ctx.push(errorMessage(error, '稿件认领失败，请刷新列表。'), 'err');
+      await loadWorkspace().catch(() => {});
+    } finally { setClaimingId(null); }
+  }
   return (
     <div className="page wide fade-in">
       <div className="phead">
@@ -69,10 +80,10 @@ export function ReviewWorkspace({ ctx }) {
       <div className="card pad0">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--rule)' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15 }}>我的待审队列 <span className="muted numf" style={{ fontSize: 14 }}>· {queue.length}</span></div>
-          <span className="muted" style={{ fontSize: 12 }}>真实数据 · 并发冲突由审稿提交接口返回 409</span>
+          <span className="muted" style={{ fontSize: 12 }}>真实数据 · 30 分钟审稿认领租约</span>
         </div>
         {queue.length ? <table className="tbl"><thead><tr><th>编号</th><th>稿件</th><th>作者</th><th>字数</th><th>提交</th><th>阶段</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead><tbody>
-          {queue.map((q) => <tr key={q.id}><td className="t-mono">{q.id}</td><td className="t-name">{q.title}</td><td>{q.author}</td><td className="t-sub">{q.words}</td><td className="t-mono">{q.at}</td><td><StatusBadge kind={q.stage === '待初审' ? 'info' : 'warn'}>{q.stage}</StatusBadge></td><td style={{ textAlign: 'right' }}><button className="btn sm" onClick={openFull}>进入审稿</button></td></tr>)}
+          {queue.map((q) => <tr key={q.id}><td className="t-mono">{q.id}</td><td className="t-name">{q.title}<div className="t-sub">第 {q.revisionNo} 稿</div></td><td>{q.author}</td><td className="t-sub">{q.words}</td><td className="t-mono">{q.at}</td><td><StatusBadge kind={q.claimedByMe ? 'ok' : (q.stage === '待初审' ? 'info' : 'warn')}>{q.claimedByMe ? '我已认领' : q.stage}</StatusBadge></td><td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => openFull(q)} disabled={claimingId === q.bookId}>{claimingId === q.bookId ? <><Spin />认领中…</> : (q.claimedByMe ? '继续审稿' : '认领并审稿')}</button></td></tr>)}
         </tbody></table> : <EmptyState title="暂无待审稿件" desc="新的投稿到达后会出现在这里。" />}
       </div>
 
@@ -123,5 +134,5 @@ export function MyReviewHistory({ ctx }) {
 
 /* 接口状态：
  *   已接入：待审队列、当前生效配置只读汇总、当前审稿编辑的审计记录。
- *   待补：稿件认领/占用语义；审稿决定提交阶段已有 409 状态冲突保护。
+ *   审稿认领、租约过期与决定提交阶段的 409 并发保护均已接入。
  */

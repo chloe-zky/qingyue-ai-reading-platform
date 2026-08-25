@@ -9,13 +9,10 @@
 //   POST /api/editor/articles/{book_id}/approve
 //   POST /api/uploads/cover        （multipart，字段名 file）
 // 正式鉴权：Authorization: Bearer <Supabase access_token>。统一请求由 apiClient
-// 完成，401 / 403 / 503 与内部后台使用相同语义。legacy 分支只为暂时兼容尚未
-// 删除的独立预览组件；正式入口始终传 staffSession=true。
+// 完成，401 / 403 / 503 与内部后台使用相同语义。旧 admin-token 分支已移除。
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/apiClient';
-
-const API_BASE = `http://${window.location.hostname}:8000`;
 
 // 配图上传前端校验（与后端 upload_service 一致）
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -33,6 +30,9 @@ function normalize(book) {
     sample: book.sample || '',
     full_content: book.full_content || '',
     status: book.status || 'pending_review',
+    revision_no: book.revision_no || 1,
+    claimed_by_me: Boolean(book.claimed_by_me),
+    claim_expires_at: book.review_claim_expires_at || null,
     tag_source: bt.tag_source || 'ai',
     cover: url
       ? {
@@ -73,85 +73,38 @@ function toApprovePayload(sub) {
   };
 }
 
-async function readError(res, fallback) {
-  try {
-    const data = await res.json();
-    return data.detail || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export function useEditorCore({ staffSession = false, displayName = '编辑' } = {}) {
-  const sessionMarker = staffSession ? 'supabase-bearer-session' : '';
-  const [token, setToken] = useState(sessionMarker);
-  const [user, setUser] = useState(displayName || '编辑');
+export function useEditorCore({ displayName = '编辑' } = {}) {
+  const token = 'supabase-bearer-session';
+  const user = displayName || '编辑';
   const [subs, setSubs] = useState([]);
   const [msg, setMsg] = useState(null); // { kind:'ok'|'err', text }
-  const tokenRef = useRef(sessionMarker);
 
   const okMsg = (text) => setMsg({ kind: 'ok', text });
   const errMsg = (text) => setMsg({ kind: 'err', text });
 
-  const fetchSubmissions = useCallback(async (tk) => {
-    if (staffSession) {
-      const data = await apiFetch('/api/editor/submissions');
-      return (data || []).map(normalize);
-    }
-    const res = await fetch(`${API_BASE}/api/editor/submissions`, {
-      headers: { 'admin-token': tk },
-    });
-    if (!res.ok) throw new Error(await readError(res, '加载失败'));
-    const data = await res.json();
+  const fetchSubmissions = useCallback(async () => {
+    const data = await apiFetch('/api/editor/submissions');
     return (data || []).map(normalize);
-  }, [staffSession]);
+  }, []);
 
   const postDecision = useCallback(async (path, body) => {
-    if (staffSession) {
-      return apiFetch(path, { method: 'POST', body });
-    }
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      headers: {
-        'admin-token': tokenRef.current,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(await readError(res, '操作失败'));
-    return res.json();
-  }, [staffSession]);
+    return apiFetch(path, { method: 'POST', body });
+  }, []);
 
-  // 登录：账号 + 密码（密码即 admin-token）。成功返回 true。
-  const login = useCallback(
-    async (account, password) => {
-      if (staffSession) return false;
-      const tk = (password || '').trim();
-      if (!tk) {
-        errMsg('请输入登录密码。');
-        return false;
-      }
-      try {
-        const list = await fetchSubmissions(tk);
-        setToken(tk);
-        tokenRef.current = tk;
-        setUser((account || '').trim() || '编辑');
-        setSubs(list);
-        okMsg(`欢迎回来。今日 ${list.length} 篇待审。`);
-        return true;
-      } catch (e) {
-        errMsg(`登录失败：${e.message}`);
-        return false;
-      }
-    },
-    [fetchSubmissions, staffSession]
-  );
+  const ensureClaim = useCallback(async (sub) => {
+    if (sub.claimed_by_me) return sub;
+    const result = await postDecision(`/api/editor/submissions/${sub.book_id}/claim`, {});
+    const claimed = { ...sub, claimed_by_me: true, claim_expires_at: result.expires_at };
+    setSubs((current) => current.map((item) => item.book_id === sub.book_id ? claimed : item));
+    return claimed;
+  }, [postDecision]);
+
+  // 登录由 Studio 的 Supabase Auth 外壳统一处理；保留同形接口供既有视图调用。
+  const login = useCallback(async () => false, []);
 
   const reload = useCallback(async () => {
-    const tk = tokenRef.current;
-    if (!tk) return;
     try {
-      const list = await fetchSubmissions(tk);
+      const list = await fetchSubmissions();
       setSubs(list);
       okMsg('已刷新待审列表。');
     } catch (e) {
@@ -160,17 +113,14 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
   }, [fetchSubmissions]);
 
   const logout = useCallback(() => {
-    setToken(staffSession ? sessionMarker : '');
-    tokenRef.current = staffSession ? sessionMarker : '';
     setSubs([]);
     setMsg(null);
-    setUser(displayName || '编辑');
-  }, [displayName, sessionMarker, staffSession]);
+  }, []);
 
   useEffect(() => {
-    if (!staffSession) return;
-    reload();
-  }, [reload, staffSession]);
+    const timer = window.setTimeout(reload, 0);
+    return () => window.clearTimeout(timer);
+  }, [reload]);
 
   // 就地更新一篇稿件（勾选标签、编辑配图字段等）
   const change = useCallback((next) => {
@@ -180,9 +130,10 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
   // 确认发布，入推荐池。配图非强制（收稿后可跳过配图直接发布）。成功返回 true。
   const approve = useCallback(async (sub) => {
     try {
+      const claimed = await ensureClaim(sub);
       await postDecision(
-        `/api/editor/articles/${sub.book_id}/approve`,
-        toApprovePayload(sub),
+        `/api/editor/articles/${claimed.book_id}/approve`,
+        toApprovePayload(claimed),
       );
       setSubs((cur) => cur.filter((s) => s.book_id !== sub.book_id));
       okMsg(`✓ 稿件 ID ${sub.book_id} 已发布，入推荐池！`);
@@ -191,7 +142,7 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
       errMsg(`审核失败：${e.message}`);
       return false;
     }
-  }, [postDecision]);
+  }, [ensureClaim, postDecision]);
 
   // ── 初审阶段的两个决定 ────────────────────────────────
   // 拒稿：写明理由 → 回复作者，稿件移出待审列表。
@@ -199,8 +150,9 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
     const text = (reason || '').trim();
     if (!text) return false;
     try {
+      const claimed = await ensureClaim(sub);
       await postDecision(
-        `/api/editor/articles/${sub.book_id}/reject`,
+        `/api/editor/articles/${claimed.book_id}/reject`,
         { reason: text },
       );
       setSubs((cur) => cur.filter((s) => s.book_id !== sub.book_id));
@@ -210,15 +162,16 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
       errMsg(`拒稿失败：${e.message}`);
       return false;
     }
-  }, [postDecision]);
+  }, [ensureClaim, postDecision]);
 
   // 提交修改意见：退回作者，稿件保留待其再次提交。
   const revise = useCallback(async (sub, note) => {
     const text = (note || '').trim();
     if (!text) return false;
     try {
+      const claimed = await ensureClaim(sub);
       await postDecision(
-        `/api/editor/articles/${sub.book_id}/revise`,
+        `/api/editor/articles/${claimed.book_id}/revise`,
         { note: text },
       );
       setSubs((cur) => cur.filter((s) => s.book_id !== sub.book_id));
@@ -228,7 +181,7 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
       errMsg(`提交修改意见失败：${e.message}`);
       return false;
     }
-  }, [postDecision]);
+  }, [ensureClaim, postDecision]);
 
   // 真实配图上传。校验类型/大小 → POST /api/uploads/cover → 写回该稿 cover.url。
   // 返回公开 URL；失败抛错（调用方展示）。
@@ -242,24 +195,13 @@ export function useEditorCore({ staffSession = false, displayName = '编辑' } =
     }
     const fd = new FormData();
     fd.append('file', file);
-    let data;
-    if (staffSession) {
-      data = await apiFetch('/api/uploads/cover', { method: 'POST', body: fd });
-    } else {
-      const res = await fetch(`${API_BASE}/api/uploads/cover`, {
-        method: 'POST',
-        headers: { 'admin-token': tokenRef.current },
-        body: fd,
-      });
-      if (!res.ok) throw new Error(await readError(res, '上传失败'));
-      data = await res.json();
-    }
+    const data = await apiFetch('/api/uploads/cover', { method: 'POST', body: fd });
     const url = data.cover_image_url;
     // 保留已填的摄影/说明，只替换 url；原本无 cover 则新建。
     const prevCover = sub.cover || { photographer: '', caption: '' };
     change({ ...sub, cover: { ...prevCover, url } });
     return url;
-  }, [change, staffSession]);
+  }, [change]);
 
   return {
     token,
