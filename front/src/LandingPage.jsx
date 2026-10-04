@@ -6,8 +6,9 @@
 //
 import { useEffect, useRef, useState } from 'react';
 import { primeHomePick } from './homePickCache';
+import { getPublishedVocabulary } from './lib/tagApi';
 import { useReaderAuth } from './reader/ReaderAuthContext';
-import heroImage from './assets/hero.png';
+import heroImage from './assets/landing-hero.jpg';
 import './LandingPage.css';
 
 // 隐藏入口阈值：N 次点击在 windowMs 内触发
@@ -16,8 +17,8 @@ const TAP_WINDOW_MS     = 2500;
 
 export default function LandingPage({ onNavigate }) {
   const {
-    configured, session, loading, recoveryMode,
-    signIn, signUp, signOut, requestPasswordReset, updatePassword, cancelPasswordRecovery,
+    configured, loading, recoveryMode,
+    signIn, signUp, requestPasswordReset, updatePassword, cancelPasswordRecovery,
   } = useReaderAuth();
   const [mode, setMode] = useState(null);
   const [form, setForm] = useState({
@@ -45,6 +46,14 @@ export default function LandingPage({ onNavigate }) {
 
   const setField = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const activeMode = recoveryMode ? 'new-password' : mode;
+
+  // 用户打开登录表单时就下载读者空间代码与公共词表。这里只读取公开静态资源，
+  // 不碰任何个人数据；真正的今日状态要等登录成功后由 Provider 预热。
+  useEffect(() => {
+    if (activeMode !== 'login') return;
+    void import('./UserApp');
+    void getPublishedVocabulary().catch(() => { /* ReaderPage 保留内置兜底。 */ });
+  }, [activeMode]);
 
   function passwordIsStrong(password) {
     return password.length >= 10 && /[A-Za-z]/.test(password) && /\d/.test(password);
@@ -93,13 +102,14 @@ export default function LandingPage({ onNavigate }) {
     <div className="landing-root">
       <div className="landing-frame">
 
-        {/* Hero image */}
+        {/* Hero image — 边缘处理与推荐页封面同一套：圆角 + 一层柔和阴影，
+            左右与正文列对齐。这张展厅照片的墙面本身接近白，和白底页面自然
+            接得上，所以不需要压暗层；配色见 LandingPage.css。 */}
         <div
           className="landing-hero"
+          data-protected-image="true"
           style={{ backgroundImage: `url(${heroImage})` }}
-        >
-          <div className="landing-hero-veil" />
-        </div>
+        />
 
         {/* Text block */}
         <div className="landing-body">
@@ -118,14 +128,8 @@ export default function LandingPage({ onNavigate }) {
           {message && <div className={`landing-message is-${message.kind}`}>{message.text}</div>}
 
           {!activeMode && <div className="landing-actions">
-            {loading ? <button className="landing-btn landing-btn-primary" disabled>正在确认登录状态…</button>
-              : session ? <>
-                <button className="landing-btn landing-btn-primary" onClick={() => onNavigate('user')}>继续阅读</button>
-                <button className="landing-btn landing-btn-ghost" onClick={signOut}>退出当前账号</button>
-              </> : <>
-                <button className="landing-btn landing-btn-primary" onClick={() => { setMode('login'); setMessage(null); }}>登录</button>
-                <button className="landing-btn landing-btn-ghost" onClick={() => { setMode('register'); setMessage(null); }}>注册</button>
-              </>}
+            <button className="landing-btn landing-btn-primary" onClick={() => { setMode('login'); setMessage(null); }}>登录</button>
+            <button className="landing-btn landing-btn-ghost" onClick={() => { setMode('register'); setMessage(null); }}>注册</button>
           </div>}
 
           {activeMode && <form className="landing-auth-form" onSubmit={submit}>

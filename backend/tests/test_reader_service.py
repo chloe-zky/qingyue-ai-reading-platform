@@ -7,6 +7,7 @@ from unittest.mock import patch
 from app.services.reader_service import (
     ReaderBookNotFoundError,
     add_favorite,
+    delete_reading_history,
     get_reader_profile,
     list_favorites,
     list_reading_history,
@@ -21,6 +22,8 @@ class FakeQuery:
         self.database = database
         self.table_name = table_name
         self.operation = "select"
+        self.count_mode = None
+        self.head_only = False
         self.payload = None
         self.filters = []
         self.max_rows = None
@@ -29,8 +32,11 @@ class FakeQuery:
         self.start_row = None
         self.end_row = None
 
-    def select(self, _columns="*"):
+    def select(self, _columns="*", count=None, head=None):
         self.operation = "select"
+        # count='exact' + head=True：PostgREST 只回计数，不回行。
+        self.count_mode = count
+        self.head_only = bool(head)
         return self
 
     def eq(self, key, value):
@@ -39,6 +45,10 @@ class FakeQuery:
 
     def in_(self, key, values):
         self.filters.append(("in", key, values))
+        return self
+
+    def ilike(self, key, pattern):
+        self.filters.append(("ilike", key, pattern))
         return self
 
     def limit(self, value):
@@ -162,6 +172,13 @@ class FakeSupabase:
                 matches = [row for row in matches if row.get(key) == value]
             elif operation == "in":
                 matches = [row for row in matches if row.get(key) in value]
+            elif operation == "ilike":
+                # PostgREST 的 ilike：% 是通配符，比较大小写不敏感。
+                needle = str(value).strip("%").lower()
+                matches = [
+                    row for row in matches
+                    if needle in str(row.get(key) or "").lower()
+                ]
         if query.order_by:
             matches = sorted(
                 matches,
@@ -174,6 +191,10 @@ class FakeSupabase:
             matches = matches[: query.max_rows]
 
         if query.operation == "select":
+            if query.count_mode:
+                # head=True 时不回行，只回计数——与 PostgREST 行为一致。
+                rows = [] if query.head_only else copy.deepcopy(matches)
+                return SimpleNamespace(data=rows, count=len(matches))
             return SimpleNamespace(data=copy.deepcopy(matches))
         if query.operation == "insert":
             result = copy.deepcopy(query.payload)
@@ -254,6 +275,33 @@ def tables():
 
 
 class ReaderServiceTests(unittest.TestCase):
+    def test_profile_counts_use_count_only_queries(self):
+        """计数不该把行搬回来。
+
+        以前是拉最多 5000 行再 len()，为一个数字付整份载荷；现在用
+        count='exact' + head=True，只回计数。这条断言把它钉住，
+        免得日后有人改回去而没人发现。
+        """
+        data = tables()
+        data["reader_favorites"].extend(
+            {"user_id": "reader-1", "book_id": i} for i in range(1, 4)
+        )
+        fake = FakeSupabase(data)
+        seen = []
+        original = fake.execute
+
+        def record(query):
+            if query.table_name == "reader_favorites":
+                seen.append((query.count_mode, query.head_only))
+            return original(query)
+
+        fake.execute = record
+        with patch("app.services.reader_service.supabase", fake):
+            result = get_reader_profile(principal())
+
+        self.assertEqual(result["favorites_count"], 3)
+        self.assertIn(("exact", True), seen)
+
     def test_profile_reports_real_counts(self):
         data = tables()
         data["reader_favorites"].append(
@@ -276,7 +324,7 @@ class ReaderServiceTests(unittest.TestCase):
             self.assertTrue(add_favorite(principal(), 1)["is_favorite"])
             favorite = list_favorites(principal())[0]
             self.assertEqual(favorite["title"], "春日")
-            self.assertEqual(favorite["full_content"], "春天又回到了河岸。")
+            self.assertNotIn("full_content", favorite)
             self.assertFalse(remove_favorite(principal(), 1)["is_favorite"])
             self.assertEqual(list_favorites(principal()), [])
             with self.assertRaises(ReaderBookNotFoundError):
@@ -293,10 +341,33 @@ class ReaderServiceTests(unittest.TestCase):
         self.assertEqual(result["progress_percent"], 72)
         self.assertEqual(history[0]["book_id"], 1)
         self.assertEqual(history[0]["progress_percent"], 72)
-        self.assertEqual(history[0]["full_content"], "春天又回到了河岸。")
+        self.assertNotIn("full_content", history[0])
         self.assertEqual(result["active_seconds"], 35)
         self.assertEqual(result["open_count"], 1)
         self.assertEqual(result["completion_count"], 0)
+
+    def test_easter_egg_article_stays_out_of_favorites_and_history(self):
+        data = tables()
+        data["books"].append({
+            "id": 27,
+            "title": "去似朝云无觅处",
+            "author": "绿亦歌",
+            "status": "active",
+        })
+        data["reader_favorites"].append({
+            "user_id": "reader-1",
+            "book_id": 27,
+            "created_at": "2026-09-07T00:00:00+00:00",
+        })
+        data["reading_history"].append({
+            "user_id": "reader-1",
+            "book_id": 27,
+            "progress_percent": 50,
+            "last_read_at": "2026-09-07T00:00:00+00:00",
+        })
+        with patch("app.services.reader_service.supabase", FakeSupabase(data)):
+            self.assertEqual(list_favorites(principal()), [])
+            self.assertEqual(list_reading_history(principal()), [])
 
     def test_progress_aggregation_does_not_double_apply_completion_signal(self):
         fake = FakeSupabase(tables())
@@ -310,6 +381,51 @@ class ReaderServiceTests(unittest.TestCase):
         self.assertEqual(first["completion_count"], 1)
         self.assertEqual(second["completion_count"], 1)
         self.assertEqual(second["open_count"], 1)
+
+    def test_deleting_history_removes_only_that_reader_and_book(self):
+        data = tables()
+        data["reading_history"].extend([
+            {"user_id": "reader-1", "book_id": 1, "progress_percent": 30},
+            {"user_id": "reader-1", "book_id": 2, "progress_percent": 10},
+            {"user_id": "reader-2", "book_id": 1, "progress_percent": 55},
+        ])
+        fake = FakeSupabase(data)
+        with patch("app.services.reader_service.supabase", fake):
+            result = delete_reading_history(principal(), 1)
+
+        self.assertEqual(result, {"book_id": 1, "deleted": True})
+        remaining = {
+            (row["user_id"], row["book_id"]) for row in fake.tables["reading_history"]
+        }
+        self.assertEqual(remaining, {("reader-1", 2), ("reader-2", 1)})
+
+    def test_deleting_history_twice_still_succeeds(self):
+        data = tables()
+        data["reading_history"].append(
+            {"user_id": "reader-1", "book_id": 1, "progress_percent": 30}
+        )
+        fake = FakeSupabase(data)
+        with patch("app.services.reader_service.supabase", fake):
+            first = delete_reading_history(principal(), 1)
+            second = delete_reading_history(principal(), 1)
+
+        # 幂等：第二次没有行可删，但不是错误——重复点击不该弹报错。
+        self.assertTrue(first["deleted"])
+        self.assertFalse(second["deleted"])
+        self.assertEqual(fake.tables["reading_history"], [])
+
+    def test_history_of_an_unpublished_book_can_still_be_cleared(self):
+        # book 2 是 pending_review。作品下架后读者仍须能清掉自己的记录。
+        data = tables()
+        data["reading_history"].append(
+            {"user_id": "reader-1", "book_id": 2, "progress_percent": 12}
+        )
+        fake = FakeSupabase(data)
+        with patch("app.services.reader_service.supabase", fake):
+            result = delete_reading_history(principal(), 2)
+
+        self.assertTrue(result["deleted"])
+        self.assertEqual(fake.tables["reading_history"], [])
 
 
 if __name__ == "__main__":

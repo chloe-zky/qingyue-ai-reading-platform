@@ -12,6 +12,41 @@ class EditorialOverviewResponse(BaseModel):
     last_published_at: Optional[datetime] = None
 
 
+class EditorialSubmissionMetrics(BaseModel):
+    total: int = 0
+    pending_review: int = 0
+    revision_requested: int = 0
+    rejected: int = 0
+    published: int = 0
+    decision_rate_percent: float = 0
+
+
+class EditorialTurnaroundMetrics(BaseModel):
+    median_first_decision_hours: Optional[float] = None
+    median_publish_hours: Optional[float] = None
+    median_claim_wait_hours: Optional[float] = None
+
+
+class EditorialRevisionMetrics(BaseModel):
+    resubmission_count: int = 0
+    average_revision_no: float = 0
+
+
+class EditorialTaggingMetrics(BaseModel):
+    draft_count: int = 0
+    confirmed_count: int = 0
+    confirmed_coverage_percent: float = 0
+
+
+class EditorialOperationsMetricsResponse(BaseModel):
+    period_days: int
+    generated_at: datetime
+    submissions: EditorialSubmissionMetrics
+    turnaround: EditorialTurnaroundMetrics
+    revisions: EditorialRevisionMetrics
+    tagging: EditorialTaggingMetrics
+
+
 class EditorialPromptSummary(BaseModel):
     id: str
     prompt_key: str

@@ -16,6 +16,7 @@
 - 审稿编辑认领稿件，避免并发重复处理
 - AI 标签草稿、人工校对、退修、拒稿与审核发布
 - 编辑部负责人管理版本化 Prompt、标签词表和推荐策略
+- 编辑部负责人查看 7/30/90 天真实运营指标，包括待审积压、处理时长、退修与发布分布
 - 平台管理员只管理 AI 服务、员工账号、运行状态与技术日志
 
 ### 读者端
@@ -111,13 +112,13 @@ npm run lint
 npm run build
 ```
 
-当前自动化基线为 118 个后端测试，覆盖角色矩阵、投稿与审稿状态机、配置安全、读者数据、个性化推荐、上传校验、限流和网络短暂失败重试。GitHub Actions 会在推送和拉取请求时重复执行后端测试、依赖检查、前端 lint 与生产构建。
+当前自动化基线为 239 个后端测试与 32 个前端测试，覆盖角色矩阵、投稿与审稿状态机、运营指标口径、配置安全、读者数据、个性化推荐、上传校验、限流和网络短暂失败重试。GitHub Actions 会在推送和拉取请求时重复执行后端测试、依赖与漏洞检查、前端 lint、测试与生产构建。
 
 运行状态接口：
 
 - `GET /api/health/live`：进程存活
 - `GET /api/health/ready`：服务与数据库就绪
-- `GET /docs`：交互式 API 文档
+- `GET /docs`：仅开发环境开放的交互式 API 文档
 
 所有响应携带 `X-Request-ID`，服务端输出不含正文、密钥和账号凭证的结构化请求日志。
 
@@ -134,3 +135,41 @@ npm run build
 - 公共写接口具有应用层滑动窗口限流；正式部署仍应在网关配置第一层限流
 
 数据库迁移执行记录与权限核验见 `backend/migrations/APPLIED.md`。生产上线前仍需配置域名、HTTPS、网关限流、密钥轮换和备份策略。
+
+## 生产部署
+
+运行时固定为 Python 3.12 与 Node.js 22。后端和前端分别提供了
+`backend/Dockerfile` 与 `front/Dockerfile`；两者应作为两个服务部署，由平台的
+HTTPS 网关分别绑定 API 域名和网站域名。
+
+后端镜像使用 `backend/requirements.lock` 的哈希锁安装依赖。生产环境必须注入
+`SUPABASE_URL`、`SUPABASE_SERVICE_KEY`、`APP_ENV=production`、
+`FRONTEND_ORIGINS`、`ALLOWED_HOSTS`、`LLM_ALLOWED_HOSTS` 和
+`LLM_CONFIG_MASTER_KEYS`。`FORWARDED_ALLOW_IPS` 只填写实际反向代理地址；仅当
+后端网络已隔离、客户端无法直接访问容器时才可使用 `*`。
+
+前端镜像构建时必须通过 build args 注入 `VITE_API_BASE_URL`、
+`VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。这些值会被编译进静态文件，
+其中只允许出现 Supabase anon public key，绝不能使用 service role key。
+
+正式发布前从 `backend/` 执行：
+
+```bash
+python -m tools.check_deployment
+```
+
+该命令只读验证 18 张必需表、22 个 RPC 和 `covers` Storage bucket。空数据库的
+完整迁移顺序见 `backend/migrations/README.md`。
+
+### Netlify 前端
+
+仓库根目录的 `netlify.toml` 已把 `front/` 配置为 Vite 构建目录，发布产物为
+`front/dist/`，并包含 SPA 路由回退、安全响应头和带哈希静态资源的长期缓存。
+在 Netlify 项目环境变量中配置：
+
+- `VITE_API_BASE_URL`：独立部署的 FastAPI HTTPS 地址
+- `VITE_SUPABASE_URL`：Supabase 项目 URL
+- `VITE_SUPABASE_ANON_KEY`：Supabase anon public key，禁止使用 service role key
+
+FastAPI 后端仍使用 `backend/Dockerfile` 部署到支持长期运行容器的平台；不要把
+`SUPABASE_SERVICE_KEY` 或 `LLM_CONFIG_MASTER_KEYS` 配置到 Netlify 前端环境中。

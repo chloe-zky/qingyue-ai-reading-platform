@@ -8,3 +8,12 @@ class TagsSchema(BaseModel):
     aesthetic_tags: List[str] = Field(default_factory=list)
     risk_tags: List[str] = Field(default_factory=list)
     recommend_reason: Optional[str] = ""
+
+
+class TagVocabularySchema(BaseModel):
+    version_no: Optional[int] = None
+    setting_tags: List[str] = Field(default_factory=list)
+    story_tone_tags: List[str] = Field(default_factory=list)
+    relationship_core_tags: List[str] = Field(default_factory=list)
+    aesthetic_tags: List[str] = Field(default_factory=list)
+    risk_tags: List[str] = Field(default_factory=list)

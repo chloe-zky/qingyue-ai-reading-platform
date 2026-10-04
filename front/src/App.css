@@ -7,7 +7,11 @@ html, body {
   margin: 0 !important;
   padding: 0 !important;
   background: #ffffff !important;
-  /* iOS Safari sometimes adds elastic overscroll background; lock it. */
+  /* iOS Safari sometimes adds elastic overscroll background; lock it.
+     这条注释原本没有对应的声明，回弹一直没被锁住：在任何非滚动区域（最明显
+     的是底部 tab 栏）起手拖动，整页都会被拉动再弹回。overscroll-behavior:none
+     同时关掉文档级的橡皮筋与滚动链，页面内部的正常滚动不受影响。 */
+  overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -41,6 +45,16 @@ html, body {
   flex-direction: column;
 }
 .app-shell * { text-align: inherit; }
+
+/* 配图保护：阻止移动端长按保存菜单、文本式选中和桌面拖出下载。
+   事件层仍会单独拦截右键/拖拽；这里只作用于图片，不影响正文复制。 */
+.app-shell img,
+.app-shell [data-protected-image] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
 
 /* ── Legacy Vite template styles below (unused but kept harmless) ─────── */
 .counter {

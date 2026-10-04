@@ -85,6 +85,8 @@ def api_approve_submission(
         raise HTTPException(status_code=404, detail=str(exc))
     except SubmissionStateConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         logger.exception("审核稿件失败: book_id=%s", book_id)
         raise HTTPException(status_code=500, detail="审核失败，请稍后重试。")

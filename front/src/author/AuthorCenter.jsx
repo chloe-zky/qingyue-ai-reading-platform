@@ -5,8 +5,9 @@
 // 集成：由 MineTab「作者中心」行以全屏浮层(.acx-overlay)打开；landing 返回「我的」= onExit。
 // 数据为前端对接：递交为原型同款三段可见反馈 + 编号逐字符 reveal（真实后端接入见 submit()）。
 
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../lib/apiClient';
+import authorLandingImage from '../assets/author-landing.jpg';
 import { FlyingBirds } from './decor';
 import {
   TopNav, BackBtn, RightLink, ProgressDots, Field, TextField, AreaField,
@@ -95,14 +96,12 @@ function ScreenLanding({ onEnter, onBack }) {
       <div className="landing" onClick={onEnter}>
         <FlyingBirds size={54} color="var(--ink-4)" style={{ position: 'absolute', top: 62, right: 30 }} />
         <div className="illu">
-          {/* 开发者预置的固定封面图占位（220×260），实现时替换为静态资源 */}
-          <div style={{
-            width: 220, height: 260, border: '1px solid var(--rule)',
-            background: 'var(--paper-soft)', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', color: 'var(--ink-4)', fontSize: 12,
-            letterSpacing: '0.04em', textAlign: 'center', padding: 20, lineHeight: 1.7,
-          }}>
-            固定封面图<br />（开发者放入）
+          <div className="landing-image-frame">
+            <img
+              className="landing-image"
+              src={authorLandingImage}
+              alt="城市街道、教堂与树木"
+            />
           </div>
         </div>
 
@@ -125,6 +124,23 @@ function ScreenLanding({ onEnter, onBack }) {
 
 // ═══════════ 我的稿件 Home（原型 screens-home.jsx · ScreenHome） ═══════════
 function ScreenHome({ user, manuscripts, loading, error, onRefresh, onStartNew, onQuery, onOpenItem, onLogout }) {
+  const [isStarting, setIsStarting] = useState(false);
+  const startTimer = useRef(null);
+
+  useEffect(() => () => {
+    if (startTimer.current !== null) window.clearTimeout(startTimer.current);
+  }, []);
+
+  const handleStartNew = () => {
+    if (isStarting) return;
+    setIsStarting(true);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      onStartNew();
+      return;
+    }
+    startTimer.current = window.setTimeout(onStartNew, 460);
+  };
+
   return (
     <div className="app fade-in" key="home">
       <TopNav
@@ -137,11 +153,16 @@ function ScreenHome({ user, manuscripts, loading, error, onRefresh, onStartNew, 
           <h2 style={{ marginBottom: 4 }}>{user.name}，您回来了。</h2>
           <p className="sub">愿这一次的递交顺利。</p>
 
-          <div className="new-card" onClick={onStartNew}>
-            <span className="arrow">→</span>
-            <div className="ttl">开始一次新的递交</div>
-            <div className="desc">署名 · 引子 · 正文与附件 · 递交，四步。<br/>大约需要 8–15 分钟。</div>
-          </div>
+          <button
+            type="button"
+            className={`new-card${isStarting ? ' is-launching' : ''}`}
+            onClick={handleStartNew}
+            disabled={isStarting}
+          >
+            <span className="arrow" aria-hidden="true">→</span>
+            <span className="ttl">开始一次新的递交</span>
+            <span className="desc">署名 · 引子 · 正文与附件 · 递交，四步。<br/>大约需要 8–15 分钟。</span>
+          </button>
 
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',

@@ -13,6 +13,11 @@
   --mt-ink-4:      #AFBBBF;
   --mt-rule:       #E4E7E6;
   --mt-accent:     #8B3A2E;
+  /* 按压态的底色。比 --mt-paper-soft 再深一档：paper-soft 已经用在头像、封面
+   * 占位这些"静态浅底"上，按压如果也用它，按下去和没按下去在同一张纸上分不出
+   * 来。这一档在 #FCFCFB 的纸上看得见，又不至于变成一块灰斑。 */
+  --mt-press:      #EBEEED;
+  --mt-accent-press: #76301F;
   --mt-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
              "Source Han Sans SC", "Noto Sans SC", "HarmonyOS Sans SC", "MiSans",
              "Microsoft YaHei", Arial, sans-serif;
@@ -38,12 +43,40 @@
   flex-direction: column;
   justify-content: center;
   padding: calc(8px + env(safe-area-inset-top, 0px)) 22px 14%;
-  animation: minetab-fade 0.24s ease-out;
+  animation: minetab-fade 560ms cubic-bezier(.22, .61, .36, 1) both;
 }
 
 @keyframes minetab-fade {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── 交互反馈的统一底座 ──────────────────────────────────────────────
+ * 1) 键盘焦点：本页所有按钮共用一圈点睛色描边。逐个组件写会漏——原来只有头像、
+ *    笔名和左滑删除有，"取消收藏"、保存、开关、返回条用 Tab 走过去毫无痕迹。
+ *    个别组件底色特殊（如点睛色实底的删除键）在各自规则里覆盖。
+ * 2) :focus-visible 而不是 :focus：鼠标/手指点击不该留下描边，只有键盘导航要。
+ * 3) 过渡只给"松手"用：按下时 0s 立刻上色，手感才跟手；抬手后再缓慢褪去。
+ * 4) 选择器用 :where() 把类型选择器的权重清零，好让下面各组件按需覆盖（左滑
+ *    删除键要白描边、开关要圆角描边）——否则这条通用规则权重更高，覆盖不掉。 */
+.minetab-root :where(button):focus-visible {
+  outline: 2px solid var(--mt-accent);
+  outline-offset: 2px;
+}
+
+.minetab-root :where(button) {
+  transition: background-color 0.18s ease, color 0.18s ease,
+              border-color 0.18s ease, opacity 0.18s ease,
+              transform 0.18s ease;
+}
+.minetab-root :where(button):active { transition-duration: 0s; }
+
+/* 按压反馈本身是状态变化，不是动画，减弱动效时照常生效——去掉的只是过渡、
+ * 入场位移这些"会动"的部分。 */
+@media (prefers-reduced-motion: reduce) {
+  .minetab-content { animation: none; }
+  .minetab-root button,
+  .minetab-switch > span { transition: none; }
 }
 
 /* ── 身份区：头像 + 笔名 + 读者天数 ── */
@@ -55,27 +88,80 @@
   padding: 10px 0 24px;
 }
 
+/* 头像是个按钮：点一下换图。默认仍是笔名首字，传了图就铺满圆形。 */
 .minetab-avatar {
+  position: relative;
   flex: 0 0 auto;
   width: 56px;
   height: 56px;
+  padding: 0;
   border-radius: 50%;
   background: var(--mt-paper-soft);
   border: 1px solid var(--mt-rule);
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
   font-family: var(--mt-serif);
   font-weight: 700;
   font-size: 22px;
   color: var(--mt-ink-3);
   letter-spacing: 0.02em;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
+/* 头像按下去只能整体压暗：它可能是一张照片，任何底色都会被照片盖住。
+ * 再收一点点尺寸，给"按下"一个触感上的交代。 */
+.minetab-avatar:not(:disabled):active {
+  opacity: 0.82;
+  transform: scale(0.96);
+  border-color: var(--mt-ink-4);
+}
+/* 上传中用整体变淡表示忙，而不是在头像上压一层遮罩——遮罩会挡住照片。 */
+.minetab-avatar:disabled { cursor: default; opacity: 0.55; }
+
+.minetab-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .minetab-id-text { min-width: 0; }
 
+/* 笔名可点即改。样式与原来的静态标题一致，只多一条虚线下划线暗示可编辑——
+ * 不做成输入框外观，免得这一屏变成表单。 */
 .minetab-name {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--mt-serif);
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--mt-ink);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  border-bottom: 1px dashed var(--mt-rule);
+  -webkit-tap-highlight-color: transparent;
+}
+/* 按下时那条虚线换成点睛色实线——正是点下去之后会发生的事（进入编辑态，
+ * 见 .minetab-name-input 的同色实线），按压反馈顺手预告了结果。 */
+.minetab-name:active {
+  color: var(--mt-ink);
+  border-bottom-style: solid;
+  border-bottom-color: var(--mt-accent);
+}
+.minetab-name:focus-visible { outline-offset: 3px; }
+
+/* 编辑态：保持同样的字号字重，只把下划线换成实线点睛色，位置不跳。 */
+.minetab-name-input {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--mt-accent);
+  border-radius: 0;
+  background: transparent;
+  outline: none;
   font-family: var(--mt-serif);
   font-weight: 700;
   font-size: 19px;
@@ -102,6 +188,9 @@
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--mt-rule);
+  /* 保持原有盒模型：按钮本来就占满整个文字列，按压底色因此与分隔线等宽、
+   * 上下严丝合缝。刻意不做左右出血——出血会让底色比分隔线宽出一截，
+   * 两条线对不齐反而比没有反馈更扎眼。 */
   padding: 15px 2px;
   display: flex;
   align-items: center;
@@ -111,10 +200,23 @@
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s ease;
 }
-.minetab-row:active { opacity: 0.82; }
+
+/* 悬停写在按压之前：两者权重相同，鼠标按下时 hover 与 active 同时成立，
+ * 谁写在后面谁生效——按压必须是最后一档。触屏不给 hover，否则它会"粘"在
+ * 最后点过的那一行上，看起来像选中了什么。 */
+@media (hover: hover) {
+  .minetab-row:not(:disabled):hover { background: var(--mt-paper-soft); }
+}
+
+/* 按压：整条上一层浅底。原来是整行 opacity 变淡——在浅色纸上"变淡"几乎看不出来，
+ * 而且连分隔线一起淡掉，像是内容出了问题而不是"我按到了"。 */
+.minetab-row:not(:disabled):active { background: var(--mt-press); }
+
+/* 「余额」「充值」这类占位行不可点：不给任何按压/悬停反馈，标签也退到次级色，
+ * 并且不画箭头（见 MineTab.jsx 的 ProfileRow）——箭头是"点进去"的承诺。 */
 .minetab-row:disabled { cursor: default; }
+.minetab-row:disabled .minetab-row-label { color: var(--mt-ink-3); }
 
 .minetab-row-label { color: var(--mt-ink); }
 
@@ -157,11 +259,18 @@
   font-size: 13px;
   color: var(--mt-ink-3);
   letter-spacing: 0.02em;
-  padding: 4px 0;
+  /* 返回条是一条孤立的文字，没有行的边界可以上色——给它一小块圆角底，按下时
+   * 底色浮现。左边的负外边距把这块底往回拉，文字仍与下面的标题左对齐。 */
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 6px;
   -webkit-tap-highlight-color: transparent;
 }
 .minetab-back::before { content: "← "; font-family: var(--mt-num); }
-.minetab-back:active { color: var(--mt-ink); }
+@media (hover: hover) {
+  .minetab-back:hover { color: var(--mt-ink-2); }
+}
+.minetab-back:active { color: var(--mt-ink); background: var(--mt-press); }
 
 .minetab-embed {
   flex: 1;
@@ -169,35 +278,143 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.minetab-list-view { flex: 1; overflow-y: auto; padding: calc(22px + env(safe-area-inset-top, 0px)) 22px 32px; }
+.minetab-list-view {
+  flex: 1;
+  overflow-y: auto;
+  padding: calc(22px + env(safe-area-inset-top, 0px)) 22px 32px;
+  animation: minetab-fade 560ms cubic-bezier(.22, .61, .36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .minetab-list-view { animation: none; }
+}
 .minetab-list-view h2 { margin: 28px 0 22px; font-family: var(--mt-serif); font-size: 22px; letter-spacing: 0.04em; }
 .minetab-state { padding: 28px 0; color: var(--mt-ink-3); font-size: 13px; line-height: 1.7; }
 .minetab-state.is-error { color: var(--mt-accent); }
 .minetab-state.is-success { color: #526a58; }
 .minetab-books { border-top: 1px solid var(--mt-rule); }
 .minetab-book { display: flex; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--mt-rule); }
-.minetab-book-open { min-width: 0; flex: 1; display: flex; gap: 12px; align-items: center; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.minetab-book-open:active { opacity: 0.78; }
+/* 书目行的可点区域只有"封面 + 标题"这一块（右边还有取消收藏 / 左滑删除按钮），
+ * 所以按压底色也只铺这一块。纵向用 padding + 等量负 margin 撑出 6px，让底色
+ * 比内容高一圈；横向一点不出血——右边紧挨着另一个按钮，出血会把两者的间距
+ * 改掉，也容易让人以为按压范围包括了删除键。 */
+.minetab-book-open { min-width: 0; flex: 1; display: flex; gap: 12px; align-items: center; border: 0; margin: -6px 0; padding: 6px 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) {
+  .minetab-book-open:not(:disabled):hover { background: var(--mt-paper-soft); }
+}
+.minetab-book-open:not(:disabled):active { background: var(--mt-press); }
+/* 正在打开某一篇时所有行都被禁用——此时不该再有任何"按得动"的暗示。 */
+.minetab-book-open:disabled { cursor: default; }
 .minetab-book-cover { width: 48px; height: 64px; flex: 0 0 auto; background: var(--mt-paper-soft) center / cover no-repeat; }
 .minetab-book-main { min-width: 0; flex: 1; }
 .minetab-book-title { font-family: var(--mt-serif); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .minetab-book-author { color: var(--mt-ink-3); font-size: 11px; margin-top: 5px; }
-.minetab-remove { border: 0; background: transparent; color: var(--mt-ink-3); font: inherit; font-size: 11px; cursor: pointer; }
-.minetab-progress { height: 2px; margin-top: 10px; background: var(--mt-rule); overflow: hidden; }
+/* 「取消收藏」原来点下去毫无反应——它是这一屏唯一的破坏性操作，反倒最需要
+ * 确认"我按到了"。按压时转成点睛色 + 浅底，与其它行的语言一致但带上警示色。 */
+.minetab-remove { flex: 0 0 auto; border: 0; margin: -6px 0; padding: 6px 0; border-radius: 6px; background: transparent; color: var(--mt-ink-3); font: inherit; font-size: 11px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) {
+  .minetab-remove:hover { color: var(--mt-accent); }
+}
+.minetab-remove:active { color: var(--mt-accent); background: var(--mt-press); }
+
+/* ── 阅读历史左滑删除 ──────────────────────────────────────────────
+ * 删除按钮固定躺在行的下层，整条记录作为一块盖在它上面滑走，滑多少露多少。
+ * 全程只有一个 transform 在动，所以既跟手又连贯；宽度与 swipeRow.js 的
+ * OPEN_WIDTH 一致，露出的红色区域正好就是按钮的可点范围。
+ *
+ * display:block 覆盖 .minetab-book 的 flex —— 否则滑动体只是个 flex 项，
+ * 宽度按内容算而不是整行，左滑时看起来像没反应或只动了一小块。 */
+.minetab-swipe { position: relative; display: block; padding: 0; overflow: hidden; }
+
+.minetab-swipe-body {
+  /* 定位 + z-index 让这一层盖住下面绝对定位的按钮：不这么写的话，绝对定位元素
+   * 天然画在静态内容之上，按钮会一直浮在行上面，只能靠 opacity 硬藏，
+   * 于是变成「滑到位才突然出现」而不是跟着滑动一点点露出来。 */
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  background: var(--mt-paper);
+  will-change: transform;
+  /* 纵滚交给浏览器，横向留给手势判定（见 swipeRow.js）。 */
+  touch-action: pan-y;
+}
+
+.minetab-swipe-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 1px;              /* 让开行底的分隔线 */
+  width: 88px;
+  padding: 0;
+  border: 0;
+  /* 显式居中，不依赖按钮的默认对齐——有内边距或字体基线差异时会偏。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mt-accent);
+  color: var(--mt-paper);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  /* 视觉上一直在（靠行盖住），但没展开时不可点、不可读屏，
+   * 避免滑到一半误触，也不让焦点跑到看不见的按钮上。 */
+  pointer-events: none;
+}
+.minetab-swipe.is-open .minetab-swipe-delete { pointer-events: auto; }
+.minetab-swipe-delete:disabled { opacity: 0.6; }
+/* 已经是点睛色实底，按压只能往深里走一档。 */
+.minetab-swipe-delete:not(:disabled):active { background: var(--mt-accent-press); }
+/* 描边画在实底之内，用纸色——点睛色的描边压在点睛色的底上等于没有。 */
+.minetab-swipe-delete:focus-visible { outline: 2px solid var(--mt-paper); outline-offset: -5px; }
+
+.minetab-hint {
+  padding: 0 0 10px;
+  color: var(--mt-ink-4);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+/* 右侧收进 16px：左滑露出删除按钮时，中间保留一段纸色呼吸区，
+ * 避免细进度线与点睛色按钮在边界上直接连成一体。 */
+.minetab-progress { height: 2px; margin: 10px 16px 0 0; background: var(--mt-rule); overflow: hidden; }
 .minetab-progress span { display: block; height: 100%; background: var(--mt-accent); }
 .minetab-account-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; color: var(--mt-ink-3); font-size: 11px; }
-.minetab-account-field input { min-height: 44px; border: 0; border-bottom: 1px solid var(--mt-rule); border-radius: 0; background: transparent; color: var(--mt-ink); font: inherit; font-size: 14px; outline: none; }
-.minetab-save { width: 100%; min-height: 46px; border: 1px solid var(--mt-ink); background: var(--mt-ink); color: var(--mt-paper); font: inherit; cursor: pointer; }
-.minetab-save:disabled { opacity: 0.5; }
-.minetab-reset-password { width: 100%; min-height: 46px; margin-top: 12px; border: 1px solid var(--mt-rule); background: transparent; color: var(--mt-ink-2); font: inherit; cursor: pointer; }
-.minetab-reset-password:disabled { opacity: 0.5; }
+.minetab-account-field input { min-height: 44px; border: 0; border-bottom: 1px solid var(--mt-rule); border-radius: 0; background: transparent; color: var(--mt-ink); font: inherit; font-size: 14px; outline: none; transition: border-color 0.18s ease; }
+/* 输入框原来 outline:none 之后什么焦点提示都没有了，键盘用户会不知道光标在哪。
+ * 这里用 :focus 而不是 :focus-visible——输入框无论用什么方式聚焦都该标出来。
+ * 下划线转点睛色，与编辑昵称时的样式同源。 */
+.minetab-account-field input:focus { border-bottom-color: var(--mt-accent); }
+.minetab-account-field input:disabled { color: var(--mt-ink-3); }
+
+.minetab-save { width: 100%; min-height: 46px; border: 1px solid var(--mt-ink); background: var(--mt-ink); color: var(--mt-paper); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.minetab-reset-password { width: 100%; min-height: 46px; margin-top: 12px; border: 1px solid var(--mt-rule); background: transparent; color: var(--mt-ink-2); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) {
+  .minetab-save:not(:disabled):hover { background: var(--mt-ink-2); border-color: var(--mt-ink-2); }
+  .minetab-reset-password:not(:disabled):hover { border-color: var(--mt-ink-4); }
+}
+/* 深色实底按钮按压时往浅里走一档：近黑再加深等于没变化。 */
+.minetab-save:not(:disabled):active { background: var(--mt-ink-2); border-color: var(--mt-ink-2); }
+.minetab-reset-password:not(:disabled):active { background: var(--mt-press); border-color: var(--mt-ink-4); color: var(--mt-ink); }
+.minetab-save:disabled,
+.minetab-reset-password:disabled { opacity: 0.5; cursor: default; }
 .minetab-personalization { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 4px 0 22px; padding: 14px 0; border-top: 1px solid var(--mt-rule); border-bottom: 1px solid var(--mt-rule); }
 .minetab-personalization div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .minetab-personalization strong { color: var(--mt-ink); font-size: 13px; font-weight: 500; }
 .minetab-personalization span { color: var(--mt-ink-3); font-size: 10.5px; line-height: 1.6; }
-.minetab-switch { position: relative; flex: 0 0 auto; width: 42px; height: 24px; border: 0; border-radius: 999px; padding: 2px; background: var(--mt-rule); cursor: pointer; transition: background 0.18s ease; }
+.minetab-switch { position: relative; flex: 0 0 auto; width: 42px; height: 24px; border: 0; border-radius: 999px; padding: 2px; background: var(--mt-rule); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background 0.18s ease; }
 .minetab-switch > span { display: block; width: 20px; height: 20px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgba(30,42,46,0.18); transition: transform 0.18s ease; }
 .minetab-switch.is-on { background: var(--mt-accent); }
 .minetab-switch.is-on > span { transform: translateX(18px); }
-.minetab-switch:disabled { opacity: 0.5; }
+/* 开关的按压反馈落在滑块上（轨道正忙着表示开/关，不能再兼职表示按下）：
+ * 按住时滑块略收，松手回弹。开态要把位移一起写进来，否则滑块会跳回左边。 */
+.minetab-switch:not(:disabled):active > span { transform: scale(0.9); }
+.minetab-switch.is-on:not(:disabled):active > span { transform: translateX(18px) scale(0.9); }
+.minetab-switch:disabled { opacity: 0.5; cursor: default; }
+/* 圆角轨道配方角描边会露出四个角，描边跟着圆起来。 */
+.minetab-switch:focus-visible { outline-offset: 3px; border-radius: 999px; }
 .minetab-reading-host { position: relative; flex: 1; width: 100%; overflow: hidden; }

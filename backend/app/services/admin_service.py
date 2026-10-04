@@ -4,7 +4,7 @@ from typing import Optional
 import httpx
 
 from app.database import supabase
-from app.services.secret_service import get_llm_api_key, store_llm_api_key
+from app.services.secret_service import encrypt_secret, get_llm_api_key
 from app.utils.outbound_url import validate_llm_api_base
 
 
@@ -16,13 +16,6 @@ def get_config_value(key: str) -> str:
     if res.data and res.data[0].get('config_value'):
         return res.data[0]['config_value'].strip()
     return ""
-
-def update_config_value(key: str, value: str, desc: str = "") -> None:
-    supabase.table("system_configs").upsert({
-        "config_key": key,
-        "config_value": value.strip(),
-        "config_desc": desc
-    }, on_conflict="config_key").execute()
 
 def _int_config(key: str, default: int) -> int:
     try:
@@ -48,15 +41,17 @@ def update_llm_config(
     if not api_key and not existing_key:
         raise ValueError("首次配置 AI 服务时必须填写 API Key")
 
-    update_config_value("llm_api_base", api_base, "OpenAI compatible API Base URL")
-    if api_key:
-        store_llm_api_key(api_key)
-    update_config_value("llm_model_name", model_name, "当前使用的模型名称")
-    update_config_value("llm_api_type", api_type, "API 类型")
-    if timeout_seconds is not None:
-        update_config_value("llm_timeout_seconds", str(timeout_seconds), "AI 请求超时秒数")
-    if max_retries is not None:
-        update_config_value("llm_max_retries", str(max_retries), "AI 请求最大重试次数")
+    encrypted = encrypt_secret(api_key) if api_key else None
+    supabase.rpc("update_llm_config_atomic", {
+        "p_api_base": api_base,
+        "p_model_name": model_name,
+        "p_api_type": api_type,
+        "p_timeout_seconds": timeout_seconds,
+        "p_max_retries": max_retries,
+        "p_ciphertext": encrypted["ciphertext"] if encrypted else None,
+        "p_key_id": encrypted["key_id"] if encrypted else None,
+        "p_algorithm": encrypted["algorithm"] if encrypted else None,
+    }).execute()
 
 def get_llm_config_status() -> dict:
     api_base = get_config_value("llm_api_base")

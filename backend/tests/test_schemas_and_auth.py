@@ -35,6 +35,10 @@ class EditorSchemaTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ApproveArticleRequest(setting_tags=["x" * 41])
 
+    def test_cover_url_must_use_the_project_storage_bucket(self):
+        with self.assertRaisesRegex(ValidationError, "covers"):
+            ApproveArticleRequest(cover_image_url="https://tracker.example/pixel.jpg")
+
     def test_prompt_draft_rejects_manuscript_body_variable(self):
         with self.assertRaises(ValidationError):
             PromptDraftRequest(
@@ -95,6 +99,16 @@ class PublicSchemaTests(unittest.TestCase):
                 book_title="测试作品",
                 reason="任意文本",
                 user_prefs={},
+            )
+
+    def test_feedback_preferences_use_the_bounded_preference_schema(self):
+        with self.assertRaises(ValidationError):
+            FeedbackCreate(
+                request_id="request-1",
+                book_id=1,
+                book_title="测试作品",
+                reason="推荐准确",
+                user_prefs={"setting_tags": [str(index) for index in range(21)]},
             )
 
     def test_reader_profile_update_requires_a_change(self):

@@ -25,10 +25,15 @@ class ReaderProfileUpdate(BaseModel):
         return self
 
 
+class ReaderAvatarResponse(BaseModel):
+    avatar_url: str
+
+
 class ReaderProfileResponse(BaseModel):
     user_id: str
     email: str
     display_name: str
+    avatar_url: str = ""
     reader_days: int
     favorites_count: int
     history_count: int
@@ -60,6 +65,13 @@ class ReadingProgressUpdate(BaseModel):
     active_seconds_delta: int = Field(default=0, ge=0, le=120)
     opened: bool = False
     request_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class ReadingHistoryDeleteResponse(BaseModel):
+    book_id: int
+    # False 表示这条记录本来就不在了。删除是幂等的，重复请求同样算成功，
+    # 所以这个字段只用来说明「这次是否真的删掉了一行」，不代表失败。
+    deleted: bool
 
 
 class ReadingProgressResponse(BaseModel):

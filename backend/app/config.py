@@ -16,6 +16,7 @@ if not SUPABASE_SERVICE_KEY:
 
 APP_ENV = os.getenv("APP_ENV", "development")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+MAX_JSON_BODY_BYTES = int(os.getenv("MAX_JSON_BODY_BYTES", str(2 * 1024 * 1024)))
 
 
 def _parse_origins(raw_value: str) -> list[str]:
@@ -44,6 +45,7 @@ def _parse_hosts(raw_value: str) -> tuple[str, ...]:
 
 
 LLM_ALLOWED_HOSTS = _parse_hosts(os.getenv("LLM_ALLOWED_HOSTS", ""))
+ALLOWED_HOSTS = _parse_hosts(os.getenv("ALLOWED_HOSTS", ""))
 LLM_CONFIG_MASTER_KEYS = os.getenv("LLM_CONFIG_MASTER_KEYS", "").strip()
 LLM_TRUST_PROXY_DNS = os.getenv("LLM_TRUST_PROXY_DNS", "false").strip().lower() in {
     "1", "true", "yes", "on",
@@ -55,7 +57,7 @@ FRONTEND_ORIGIN_REGEX = (
     r"^http://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|"
     r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])"
     r"(?:\.\d{1,3}){2}):5173$"
-    if APP_ENV == "development"
+    if APP_ENV in {"development", "test"}
     else None
 )
 
@@ -65,6 +67,8 @@ def _validate_runtime_config() -> None:
         raise ValueError("APP_ENV 只允许 development、test 或 production")
     if not SUPABASE_URL.startswith("https://"):
         raise ValueError("SUPABASE_URL 必须使用 HTTPS")
+    if MAX_JSON_BODY_BYTES < 64 * 1024 or MAX_JSON_BODY_BYTES > 20 * 1024 * 1024:
+        raise ValueError("MAX_JSON_BODY_BYTES 必须在 64KB 到 20MB 之间")
     if APP_ENV != "production":
         return
     if not FRONTEND_ORIGINS:
@@ -74,6 +78,8 @@ def _validate_runtime_config() -> None:
         raise ValueError("生产环境 FRONTEND_ORIGINS 必须全部使用 HTTPS")
     if not LLM_ALLOWED_HOSTS:
         raise ValueError("生产环境必须配置 LLM_ALLOWED_HOSTS")
+    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        raise ValueError("生产环境必须配置不含通配星号的 ALLOWED_HOSTS")
 
 
 _validate_runtime_config()

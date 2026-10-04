@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.utils.media_urls import require_safe_cover_url
 
 
 class ApproveArticleRequest(BaseModel):
@@ -18,6 +19,11 @@ class ApproveArticleRequest(BaseModel):
     cover_image_url: Optional[str] = Field(default="", max_length=2048)
     cover_photographer: Optional[str] = Field(default="", max_length=120)
     cover_caption: Optional[str] = Field(default="", max_length=500)
+
+    @field_validator("cover_image_url")
+    @classmethod
+    def validate_cover_url(cls, value: Optional[str]) -> str:
+        return require_safe_cover_url(value or "")
 
     @field_validator(
         "setting_tags",

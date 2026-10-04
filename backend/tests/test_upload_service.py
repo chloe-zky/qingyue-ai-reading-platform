@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
-from app.services.upload_service import _read_and_validate
+from app.services.upload_service import _read_and_validate, upload_cover_image
 
 
 class FakeUpload:
@@ -18,34 +19,56 @@ class FakeUpload:
 
 
 class UploadValidationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_accepts_png_with_matching_signature(self):
-        content = (
-            b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
-            + (640).to_bytes(4, "big") + (480).to_bytes(4, "big") + b"payload"
+    @staticmethod
+    def jpeg(width=540, height=720):
+        return (
+            b"\xff\xd8\xff\xc0\x00\x11\x08"
+            + height.to_bytes(2, "big")
+            + width.to_bytes(2, "big")
+            + b"\x00" * 10
         )
+
+    async def test_accepts_optimized_jpeg(self):
+        content = self.jpeg()
         data, content_type, ext = await _read_and_validate(
-            FakeUpload("image/png", content)
+            FakeUpload("image/jpeg", content)
         )
 
         self.assertEqual(data, content)
-        self.assertEqual(content_type, "image/png")
-        self.assertEqual(ext, "png")
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertEqual(ext, "jpg")
 
     async def test_rejects_forged_mime_type(self):
         with self.assertRaisesRegex(ValueError, "内容与声明格式不一致"):
-            await _read_and_validate(FakeUpload("image/png", b"plain text"))
+            await _read_and_validate(FakeUpload("image/jpeg", b"plain text"))
 
     async def test_rejects_unsupported_type(self):
-        with self.assertRaisesRegex(ValueError, "仅支持 JPEG / PNG / WebP"):
+        with self.assertRaisesRegex(ValueError, "仅接收已压缩的 JPEG"):
             await _read_and_validate(FakeUpload("image/gif", b"GIF89a"))
 
-    async def test_rejects_decompression_bomb_dimensions(self):
-        content = (
-            b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
-            + (9000).to_bytes(4, "big") + (9000).to_bytes(4, "big") + b"payload"
+    async def test_rejects_jpeg_larger_than_720px(self):
+        with self.assertRaisesRegex(ValueError, "长边上限为 720"):
+            await _read_and_validate(FakeUpload("image/jpeg", self.jpeg(721, 480)))
+
+    async def test_uploaded_uuid_cover_uses_one_year_cache(self):
+        content = self.jpeg()
+        storage = MagicMock()
+        storage.get_public_url.return_value = (
+            "https://example.supabase.co/storage/v1/object/public/covers/optimized/unique-cover.jpg"
         )
-        with self.assertRaisesRegex(ValueError, "总像素过大"):
-            await _read_and_validate(FakeUpload("image/png", content))
+        fake = MagicMock()
+        fake.storage.from_.return_value = storage
+
+        with patch("app.services.upload_service.supabase", fake), patch(
+            "app.services.upload_service._build_object_name",
+            return_value="optimized/unique-cover.jpg",
+        ):
+            result = await upload_cover_image(FakeUpload("image/jpeg", content))
+
+        options = storage.upload.call_args.kwargs["file_options"]
+        self.assertEqual(options["cache-control"], "31536000")
+        self.assertEqual(options["upsert"], "false")
+        self.assertEqual(result["storage_path"], "optimized/unique-cover.jpg")
 
 
 if __name__ == "__main__":

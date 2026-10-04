@@ -22,6 +22,31 @@ export function errorMessage(error, fallback = '加载失败，请稍后重试�
   return error?.detail || error?.message || fallback;
 }
 
+/**
+ * 中位时长格式化。
+ * 后端在样本不足时会返回 null —— 此时显示 '—' 而不是 0，避免把「没有数据」
+ * 误读成「零耗时」。≥48 小时改用天，否则会出现「132.4 小时」这种难读的数。
+ */
+export function formatDuration(hours) {
+  if (hours == null || Number.isNaN(Number(hours))) return '—';
+  const value = Number(hours);
+  if (value < 1) return `${Math.round(value * 60)} 分钟`;
+  if (value < 48) return `${value.toFixed(1)} 小时`;
+  return `${(value / 24).toFixed(1)} 天`;
+}
+
+/** 百分比格式化；null 同样显示 '—'，不补 0。 */
+export function formatPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toFixed(1)}%`;
+}
+
+/** 分布占比：分母为 0 时返回 null，交给 formatPercent 显示 '—'。 */
+export function shareOf(count, total) {
+  if (!total || total <= 0) return null;
+  return (Number(count || 0) / Number(total)) * 100;
+}
+
 export function toUiStaff(item) {
   return {
     id: item.user_id,
@@ -228,6 +253,8 @@ export const staffApi = {
   publishStrategy: (id, versionNo) => api.post(`/api/editorial/strategies/${encodeURIComponent(id)}/publish`, { version_no: versionNo }),
   rollbackStrategy: (id, targetVersionNo, changeNote = '') => api.post(`/api/editorial/strategies/${encodeURIComponent(id)}/rollback`, { target_version_no: targetVersionNo, change_note: changeNote }),
   editorialLogs: (params = {}) => api.get(`/api/editorial/audit-logs${queryString(params)}`),
+  // 编辑部运营指标（editorial_lead 专用）。days 仅接受 7 / 30 / 90。
+  operationsMetrics: (days = 30) => api.get(`/api/editorial/operations-metrics${queryString({ days })}`),
   submissions: () => api.get('/api/editor/submissions'),
   claimSubmission: (bookId) => api.post(`/api/editor/submissions/${encodeURIComponent(bookId)}/claim`, {}),
   releaseSubmission: (bookId) => api.del(`/api/editor/submissions/${encodeURIComponent(bookId)}/claim`),

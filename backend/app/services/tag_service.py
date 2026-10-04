@@ -1,5 +1,7 @@
 from app.database import supabase
 from app.schemas.tag import TagsSchema
+import time
+from typing import Optional, Tuple
 
 
 VOCABULARY_KEY_MAP = {
@@ -10,8 +12,23 @@ VOCABULARY_KEY_MAP = {
     "risk": "risk_tags",
 }
 
+_VOCABULARY_CACHE_TTL_SECONDS = 60
+_vocabulary_cache: Optional[Tuple[float, dict]] = None
 
-def get_valid_vocabularies() -> dict:
+
+def _copy_vocabulary(vocabulary: dict) -> dict:
+    return {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in vocabulary.items()
+    }
+
+
+def get_valid_vocabularies(*, use_cache: bool = True) -> dict:
+    global _vocabulary_cache
+    now = time.monotonic()
+    if use_cache and _vocabulary_cache and now - _vocabulary_cache[0] < _VOCABULARY_CACHE_TTL_SECONDS:
+        return _copy_vocabulary(_vocabulary_cache[1])
+
     vocab = {field: [] for field in VOCABULARY_KEY_MAP.values()}
 
     published = (
@@ -53,7 +70,9 @@ def get_valid_vocabularies() -> dict:
                 field = category_map.get(str(item["category_id"]))
                 if field and item.get("name") not in vocab[field]:
                     vocab[field].append(item["name"])
-        return vocab
+        result = {"version_no": published[0].get("version_no"), **vocab}
+        _vocabulary_cache = (now, result)
+        return _copy_vocabulary(result)
 
     # Deployment fallback for databases that have not published the versioned
     # vocabulary yet. New installations should never reach this branch.
@@ -70,7 +89,9 @@ def get_valid_vocabularies() -> dict:
         field = VOCABULARY_KEY_MAP.get(t_type)
         if field:
             vocab[field].append(t_name)
-    return vocab
+    result = {"version_no": None, **vocab}
+    _vocabulary_cache = (now, result)
+    return _copy_vocabulary(result)
 
 def ensure_list(value):
     if isinstance(value, list):

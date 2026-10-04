@@ -47,16 +47,74 @@ class FakeQuery:
         return self.database.execute(self)
 
 
+class FakeRpcQuery:
+    def __init__(self, database, name, params):
+        self.database = database
+        self.name = name
+        self.params = copy.deepcopy(params)
+
+    def execute(self):
+        return self.database.execute_rpc(self.name, self.params)
+
+
 class FakeSupabase:
-    def __init__(self, books, tags, fail_book_update=False):
+    def __init__(self, books, tags, fail_publish=False):
         self.rows = {
             "books": copy.deepcopy(books),
             "book_ai_tags": copy.deepcopy(tags),
         }
-        self.fail_book_update = fail_book_update
+        self.fail_publish = fail_publish
+        self.rpc_calls = []
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
+
+    def rpc(self, name, params):
+        self.rpc_calls.append((name, copy.deepcopy(params)))
+        return FakeRpcQuery(self, name, params)
+
+    def execute_rpc(self, name, params):
+        if name != "publish_reviewed_book":
+            raise AssertionError(f"unsupported rpc: {name}")
+        if self.fail_publish:
+            raise RuntimeError("simulated atomic publish failure")
+        book = next(
+            (row for row in self.rows["books"] if row.get("id") == params["p_book_id"]),
+            None,
+        )
+        if not book:
+            raise RuntimeError("P0002 稿件不存在")
+        if book.get("status") != "pending_review":
+            raise RuntimeError("22023 不能重复审核通过")
+
+        tag_payload = {
+            "book_id": params["p_book_id"],
+            **copy.deepcopy(params["p_tags"]),
+            "tag_status": "confirmed",
+            "tag_source": "ai_reviewed",
+        }
+        tags = self.rows["book_ai_tags"]
+        existing = next(
+            (row for row in tags if row.get("book_id") == params["p_book_id"]),
+            None,
+        )
+        if existing:
+            existing.update(tag_payload)
+        else:
+            tags.append(tag_payload)
+        book.update({
+            "status": "active",
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "review_claimed_by": None,
+            "review_claimed_at": None,
+            "review_claim_expires_at": None,
+            **copy.deepcopy(params["p_cover"]),
+        })
+        return SimpleNamespace(data={
+            "book_id": params["p_book_id"],
+            "article_status": "active",
+            "tag_status": "confirmed",
+        })
 
     def execute(self, query):
         rows = self.rows[query.table_name]
@@ -80,8 +138,6 @@ class FakeSupabase:
             return SimpleNamespace(data=[copy.deepcopy(query.payload)])
 
         if query.operation == "update":
-            if query.table_name == "books" and self.fail_book_update:
-                raise RuntimeError("simulated publish failure")
             for row in matches:
                 row.update(copy.deepcopy(query.payload))
             return SimpleNamespace(data=copy.deepcopy(matches))
@@ -98,9 +154,19 @@ def approval_request():
         setting_tags=["现代"],
         story_tone_tags=["温暖治愈"],
         relationship_core_tags=["相伴成长"],
-        aesthetic_tags=["克制叙事"],
+        aesthetic_tags=["克制"],
         recommend_reason="适合轻阅读",
     )
+
+
+def published_vocabularies():
+    return {
+        "setting_tags": ["现代", "古风", "民国"],
+        "story_tone_tags": ["温暖治愈", "清甜校园", "遗憾青春", "浓情曲折"],
+        "relationship_core_tags": ["相伴成长", "暗恋未明", "久别重逢", "命运拉扯"],
+        "aesthetic_tags": ["克制"],
+        "risk_tags": ["情感背叛"],
+    }
 
 
 class ApproveSubmissionTests(unittest.TestCase):
@@ -110,12 +176,19 @@ class ApproveSubmissionTests(unittest.TestCase):
             tags=[{"book_id": 8, "tag_status": "draft", "tag_source": "ai"}],
         )
 
-        with patch("app.services.editor_service.supabase", fake):
-            result = approve_submission(8, approval_request())
+        with patch("app.services.editor_service.supabase", fake), patch(
+            "app.services.editor_service.get_valid_vocabularies",
+            return_value=published_vocabularies(),
+        ), patch("app.services.editor_service.clear_recommendation_cache") as clear_cache:
+            result = approve_submission(8, approval_request(), "current-editor")
 
         self.assertEqual(fake.rows["books"][0]["status"], "active")
+        self.assertTrue(fake.rows["books"][0]["reviewed_at"])
         self.assertEqual(fake.rows["book_ai_tags"][0]["tag_status"], "confirmed")
         self.assertEqual(result["article_status"], "active")
+        self.assertEqual(fake.rpc_calls[0][0], "publish_reviewed_book")
+        self.assertEqual(fake.rpc_calls[0][1]["p_actor"], "current-editor")
+        clear_cache.assert_called_once_with()
 
     def test_rejects_duplicate_approval(self):
         fake = FakeSupabase(
@@ -123,11 +196,14 @@ class ApproveSubmissionTests(unittest.TestCase):
             tags=[{"book_id": 8, "tag_status": "confirmed"}],
         )
 
-        with patch("app.services.editor_service.supabase", fake):
+        with patch("app.services.editor_service.supabase", fake), patch(
+            "app.services.editor_service.get_valid_vocabularies",
+            return_value=published_vocabularies(),
+        ):
             with self.assertRaises(SubmissionStateConflictError):
-                approve_submission(8, approval_request())
+                approve_submission(8, approval_request(), "current-editor")
 
-    def test_restores_draft_tags_when_publish_fails(self):
+    def test_atomic_failure_leaves_book_and_draft_tags_unchanged(self):
         original_tags = {
             "book_id": 8,
             "tag_status": "draft",
@@ -137,15 +213,35 @@ class ApproveSubmissionTests(unittest.TestCase):
         fake = FakeSupabase(
             books=[{"id": 8, "status": "pending_review"}],
             tags=[original_tags],
-            fail_book_update=True,
+            fail_publish=True,
         )
 
-        with patch("app.services.editor_service.supabase", fake):
-            with self.assertRaisesRegex(RuntimeError, "标签状态已自动恢复"):
-                approve_submission(8, approval_request())
+        with patch("app.services.editor_service.supabase", fake), patch(
+            "app.services.editor_service.get_valid_vocabularies",
+            return_value=published_vocabularies(),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "原子发布失败"):
+                approve_submission(8, approval_request(), "current-editor")
 
         self.assertEqual(fake.rows["book_ai_tags"][0], original_tags)
         self.assertEqual(fake.rows["books"][0]["status"], "pending_review")
+
+    def test_rejects_out_of_vocabulary_tags_before_publish(self):
+        fake = FakeSupabase(
+            books=[{"id": 8, "status": "pending_review"}],
+            tags=[{"book_id": 8, "tag_status": "draft"}],
+        )
+        request = approval_request().model_copy(
+            update={"aesthetic_tags": ["未发布风格"]}
+        )
+        with patch("app.services.editor_service.supabase", fake), patch(
+            "app.services.editor_service.get_valid_vocabularies",
+            return_value=published_vocabularies(),
+        ):
+            with self.assertRaisesRegex(ValueError, "未发布风格"):
+                approve_submission(8, request, "current-editor")
+
+        self.assertEqual(fake.rpc_calls, [])
 
 
 class EditorDecisionTests(unittest.TestCase):

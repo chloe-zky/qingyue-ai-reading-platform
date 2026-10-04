@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -42,6 +43,33 @@ class ReaderApiTests(unittest.TestCase):
         self.assertEqual(response.json()["email"], current.email)
         service.assert_called_once_with(current)
 
+    def test_dropped_connection_is_reported_as_retryable_not_as_a_server_fault(self):
+        current = ReaderPrincipal(
+            user_id="reader-1", email="reader@example.com", display_name="读者"
+        )
+        app.dependency_overrides[get_current_reader] = lambda: current
+        with patch(
+            "app.routers.readers.get_reader_profile",
+            side_effect=httpx.ReadError("[Errno 35] Resource temporarily unavailable"),
+        ):
+            response = self.client.get("/api/reader/me")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("稍后重试", response.json()["detail"])
+
+    def test_unexpected_failure_is_still_a_server_error(self):
+        current = ReaderPrincipal(
+            user_id="reader-1", email="reader@example.com", display_name="读者"
+        )
+        app.dependency_overrides[get_current_reader] = lambda: current
+        with patch(
+            "app.routers.readers.get_reader_profile",
+            side_effect=KeyError("created_at"),
+        ):
+            response = self.client.get("/api/reader/me")
+
+        self.assertEqual(response.status_code, 500)
+
     def test_progress_validation_rejects_out_of_range_value(self):
         current = ReaderPrincipal(
             user_id="reader-1", email="reader@example.com", display_name="读者"
@@ -53,6 +81,40 @@ class ReaderApiTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 422)
         service.assert_not_called()
+
+    def test_history_delete_requires_a_reader_token(self):
+        response = self.client.delete("/api/reader/history/1")
+        self.assertEqual(response.status_code, 401)
+
+    def test_history_delete_passes_only_the_authenticated_reader(self):
+        current = ReaderPrincipal(
+            user_id="reader-1", email="reader@example.com", display_name="读者"
+        )
+        app.dependency_overrides[get_current_reader] = lambda: current
+        with patch(
+            "app.routers.readers.delete_reading_history",
+            return_value={"book_id": 7, "deleted": True},
+        ) as service:
+            response = self.client.delete("/api/reader/history/7")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"book_id": 7, "deleted": True})
+        # 服务层只拿到当前 principal 与 book_id —— 调用方无法指定别人的 user_id。
+        service.assert_called_once_with(current, 7)
+
+    def test_history_delete_of_a_missing_row_is_still_a_success(self):
+        current = ReaderPrincipal(
+            user_id="reader-1", email="reader@example.com", display_name="读者"
+        )
+        app.dependency_overrides[get_current_reader] = lambda: current
+        with patch(
+            "app.routers.readers.delete_reading_history",
+            return_value={"book_id": 7, "deleted": False},
+        ):
+            response = self.client.delete("/api/reader/history/7")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["deleted"])
 
     def test_progress_accepts_aggregated_engagement_fields(self):
         current = ReaderPrincipal(

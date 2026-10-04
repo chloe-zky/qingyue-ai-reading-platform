@@ -32,7 +32,7 @@ def create_feedback(
                 "p_book_id": feedback.book_id,
                 "p_book_title": feedback.book_title,
                 "p_reason": feedback.reason,
-                "p_user_prefs": feedback.user_prefs,
+                "p_user_prefs": feedback.user_prefs.model_dump(),
                 "p_feedback_note": feedback.feedback_note or "",
             },
         ).execute()

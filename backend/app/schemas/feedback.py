@@ -1,6 +1,7 @@
-from typing import Dict, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.recommendation import UserPreferences
 
 class FeedbackCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -9,5 +10,5 @@ class FeedbackCreate(BaseModel):
     book_id: int = Field(gt=0)
     book_title: str = Field(min_length=1, max_length=120)
     reason: Literal["推荐准确", "不感兴趣", "标签不准", "风格不符"]
-    user_prefs: Dict
+    user_prefs: UserPreferences
     feedback_note: Optional[str] = Field(default="", max_length=1000)

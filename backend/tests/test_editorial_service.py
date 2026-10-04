@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from app.schemas.editorial import (
     StrategySimulationRequest,
 )
 from app.services.editorial_service import (
+    _build_operations_metrics,
     EditorialConfigConflictError,
     _validate_prompt_template,
     simulate_strategy,
@@ -173,6 +175,53 @@ class EditorialToolExecutionTests(unittest.TestCase):
         self.assertEqual(result["candidate_count"], 2)
         self.assertEqual(result["results"][0]["score"], 96)
         self.assertEqual(result["results"][0]["title"], "完全匹配")
+
+
+class EditorialOperationsMetricsTests(unittest.TestCase):
+    def test_builds_cohort_metrics_from_audit_timestamps(self):
+        generated_at = datetime(2026, 8, 30, 12, tzinfo=timezone.utc)
+        books = [
+            {"id": 1, "status": "active", "created_at": "2026-08-29T08:00:00Z", "current_revision_no": 2},
+            {"id": 2, "status": "revision_requested", "created_at": "2026-08-29T10:00:00Z", "current_revision_no": 1},
+            {"id": 3, "status": "pending_review", "created_at": "2026-08-30T08:00:00Z", "current_revision_no": 1},
+            {"id": 4, "status": "rejected", "created_at": "2026-08-29T12:00:00Z", "current_revision_no": 1},
+        ]
+        tags = [
+            {"book_id": 1, "tag_status": "confirmed"},
+            {"book_id": 2, "tag_status": "draft"},
+            {"book_id": 3, "tag_status": "draft"},
+        ]
+        events = [
+            {"resource_id": "1", "action": "submission.claim", "created_at": "2026-08-29T09:00:00Z"},
+            {"resource_id": "1", "action": "submission.approve", "created_at": "2026-08-29T12:00:00Z"},
+            {"resource_id": "2", "action": "submission.claim", "created_at": "2026-08-29T12:00:00Z"},
+            {"resource_id": "2", "action": "submission.revision_requested", "created_at": "2026-08-29T14:00:00Z"},
+            {"resource_id": "4", "action": "submission.reject", "created_at": "2026-08-29T18:00:00Z"},
+        ]
+
+        result = _build_operations_metrics(
+            books, tags, events, period_days=30, generated_at=generated_at
+        )
+
+        self.assertEqual(result["submissions"]["total"], 4)
+        self.assertEqual(result["submissions"]["published"], 1)
+        self.assertEqual(result["submissions"]["decision_rate_percent"], 75.0)
+        self.assertEqual(result["turnaround"]["median_first_decision_hours"], 4.0)
+        self.assertEqual(result["turnaround"]["median_publish_hours"], 4.0)
+        self.assertEqual(result["turnaround"]["median_claim_wait_hours"], 1.5)
+        self.assertEqual(result["revisions"]["resubmission_count"], 1)
+        self.assertEqual(result["revisions"]["average_revision_no"], 1.2)
+        self.assertEqual(result["tagging"]["confirmed_coverage_percent"], 25.0)
+
+    def test_empty_cohort_has_zero_counts_and_no_fake_duration(self):
+        result = _build_operations_metrics(
+            [], [], [], period_days=7, generated_at=datetime.now(timezone.utc)
+        )
+
+        self.assertEqual(result["submissions"]["total"], 0)
+        self.assertEqual(result["submissions"]["decision_rate_percent"], 0.0)
+        self.assertIsNone(result["turnaround"]["median_publish_hours"])
+        self.assertEqual(result["revisions"]["average_revision_no"], 0.0)
 
 
 if __name__ == "__main__":

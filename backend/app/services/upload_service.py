@@ -2,13 +2,14 @@
 upload_service.py
 
 封装「图片上传到 Supabase Storage」逻辑。
-只允许 image/jpeg / image/png / image/webp 三种类型。
+存储端只接收前端统一压缩后的 720px JPEG。
 单文件最大 5MB。
 使用 uuid 重命名，避免覆盖。
 
 注意：图片只用于前台展示，绝对不传给 LLM、不参与 AI 打标。
 """
 
+import time
 import uuid
 from typing import Tuple
 
@@ -20,21 +21,21 @@ BUCKET_NAME = "covers"
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
-    "image/png",
-    "image/webp",
 }
 
 # Map mime → file extension (used to build the storage object name).
 _EXT_BY_MIME = {
     "image/jpeg": "jpg",
-    "image/png":  "png",
-    "image/webp": "webp",
 }
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
 MAX_IMAGE_PIXELS = 24_000_000
 MAX_IMAGE_DIMENSION = 10_000
+MAX_STORED_IMAGE_DIMENSION = 720
 READ_CHUNK_BYTES = 64 * 1024
+# Object names are UUID-based and never overwritten, so browsers/CDNs can keep
+# successful cover responses for one year without serving stale replacements.
+COVER_CACHE_CONTROL_SECONDS = "31536000"
 
 
 def _has_valid_signature(file_bytes: bytes, content_type: str) -> bool:
@@ -117,7 +118,7 @@ async def _read_and_validate(file: UploadFile) -> Tuple[bytes, str, str]:
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ValueError(
             f"不支持的图片类型：{content_type or '未知'}。"
-            "仅支持 JPEG / PNG / WebP。"
+            "上传接口仅接收已压缩的 JPEG。"
         )
 
     file_bytes = await _read_bounded(file)
@@ -134,14 +135,16 @@ async def _read_and_validate(file: UploadFile) -> Tuple[bytes, str, str]:
         raise ValueError("图片边长过大，上限为 10000 像素。")
     if width * height > MAX_IMAGE_PIXELS:
         raise ValueError("图片总像素过大，上限为 2400 万像素。")
+    if max(width, height) > MAX_STORED_IMAGE_DIMENSION:
+        raise ValueError("图片未按规则压缩，长边上限为 720 像素。")
 
     ext = _EXT_BY_MIME[content_type]
     return file_bytes, content_type, ext
 
 
 def _build_object_name(ext: str) -> str:
-    """使用 uuid 生成存储对象名，避免任何覆盖。"""
-    return f"{uuid.uuid4().hex}.{ext}"
+    """使用 uuid 生成存储对象名，统一放入 optimized 目录。"""
+    return f"optimized/{uuid.uuid4().hex}.{ext}"
 
 
 def _resolve_public_url(object_name: str) -> str:
@@ -179,6 +182,43 @@ def _remove_object_best_effort(object_name: str) -> None:
         pass
 
 
+AVATAR_CACHE_CONTROL_SECONDS = "3600"
+
+
+async def upload_reader_avatar(file: UploadFile, user_id: str) -> dict:
+    """把读者头像写进 covers 桶的 avatars/ 目录。
+
+    与封面不同，这里用「每人一个固定对象名 + 覆盖写」而不是 uuid 新建：
+    换头像时旧文件被原地替换，不会攒下一堆孤儿对象。代价是 URL 不变、
+    浏览器会拿旧缓存，所以返回时挂一个 ?v= 时间戳把缓存打穿。
+
+    复用封面那套校验（JPEG 签名、尺寸、5MB 上限），前端已压成 256px 方图。
+    """
+    file_bytes, content_type, _ext = await _read_and_validate(file)
+    object_name = f"avatars/{user_id}.jpg"
+
+    try:
+        supabase.storage.from_(BUCKET_NAME).upload(
+            path=object_name,
+            file=file_bytes,
+            file_options={
+                "content-type": content_type,
+                "cache-control": AVATAR_CACHE_CONTROL_SECONDS,
+                "upsert": "true",
+            },
+        )
+    except Exception as e:
+        raise RuntimeError(f"头像上传到云存储失败：{str(e)}")
+
+    public_url = _resolve_public_url(object_name)
+    if not public_url:
+        raise RuntimeError("头像已上传但未拿到公开链接，请稍后重试。")
+    return {
+        "avatar_url": f"{public_url}?v={int(time.time())}",
+        "storage_path": object_name,
+    }
+
+
 async def upload_cover_image(file: UploadFile) -> dict:
     """
     主入口：把单张图片上传到 covers bucket。
@@ -196,7 +236,7 @@ async def upload_cover_image(file: UploadFile) -> dict:
             file=file_bytes,
             file_options={
                 "content-type": content_type,
-                "cache-control": "3600",
+                "cache-control": COVER_CACHE_CONTROL_SECONDS,
                 "upsert": "false",
             },
         )

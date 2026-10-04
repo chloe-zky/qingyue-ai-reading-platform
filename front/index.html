@@ -51,19 +51,9 @@
     <!-- Title shown under the home-screen icon. -->
     <meta name="apple-mobile-web-app-title" content="轻阅读" />
 
-    <!-- Icons — drop the matching PNGs into front/public/ (see README at bottom).
-         iOS picks 180×180 (apple-touch-icon.png) for the home-screen icon. -->
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png" />
-    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png" />
-    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png" />
-
-    <!-- Favicon fallback (browser tab + Android secondary). -->
+    <!-- Browser and install icon. Keep every referenced asset in public/ so a
+         production build never ships broken icon URLs. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32"  href="/icon-32.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
 
     <!-- Tell iOS not to auto-detect phone numbers as tappable links. -->
     <meta name="format-detection" content="telephone=no" />

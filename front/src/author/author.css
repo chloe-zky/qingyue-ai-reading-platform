@@ -872,26 +872,52 @@
 
 /* 主卡：开始新投稿 */
 .acx .new-card{
+    width: 100%;
     border: 1px solid var(--ink);
+    border-radius: 2px;
     padding: 22px 18px;
     margin-bottom: 28px;
     background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
     cursor: pointer;
     position: relative;
+    overflow: hidden;
+    appearance: none;
+    touch-action: manipulation;
+    transition: background-color .2s ease, border-color .2s ease,
+                box-shadow .2s ease, transform .14s ease;
+  }
+
+/* 左侧的一笔像编辑在稿件边缘落下的批注：平时隐去，互动时才出现。 */
+.acx .new-card::before{
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    transform: scaleY(0);
+    transform-origin: center;
+    transition: transform .2s ease;
   }
 
 .acx .new-card .ttl{
+    display: block;
     font-family: var(--serif);
     font-weight: 600;
     font-size: 19px;
     margin-bottom: 6px;
     letter-spacing: 0.02em;
+    transition: color .18s ease, letter-spacing .22s ease, transform .22s ease;
   }
 
 .acx .new-card .desc{
+    display: block;
     font-size: 13px;
     color: var(--ink-2);
     line-height: 1.65;
+    transition: color .18s ease;
   }
 
 .acx .new-card .arrow{
@@ -900,7 +926,134 @@
     font-family: var(--num);
     color: var(--ink);
     font-size: 18px;
+    transition: color .18s ease, transform .2s ease;
   }
+
+.acx .new-card .arrow::after{
+    content: "";
+    position: absolute;
+    right: calc(100% + 3px);
+    top: 52%;
+    width: 24px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent));
+    opacity: 0;
+    transform: scaleX(0);
+    transform-origin: right center;
+  }
+
+@media (hover: hover){
+  .acx .new-card:hover{
+      background: var(--paper-soft);
+      border-color: var(--ink-2);
+      box-shadow: 0 8px 22px rgba(30, 42, 46, 0.08);
+    }
+  .acx .new-card:hover::before{ transform: scaleY(.55); }
+  .acx .new-card:hover .ttl{ color: var(--accent-deep); }
+  .acx .new-card:hover .arrow{ color: var(--accent); transform: translateX(3px); }
+}
+
+.acx .new-card:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    background: var(--paper-soft);
+  }
+.acx .new-card:focus-visible::before{ transform: scaleY(.55); }
+.acx .new-card:focus-visible .arrow{ color: var(--accent); transform: translateX(3px); }
+
+/* 按下时纸面轻沉、暖墨晕开；松手即进入下一步，不额外延迟导航。 */
+.acx .new-card:active{
+    background: #F3E9E6;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(139, 58, 46, 0.10),
+                0 2px 6px rgba(30, 42, 46, 0.08);
+    transform: translateY(1px) scale(.995);
+    transition-duration: 0s;
+  }
+.acx .new-card:active::before{ transform: scaleY(1); transition-duration: 0s; }
+.acx .new-card:active .ttl{ color: var(--accent-deep); transition-duration: 0s; }
+.acx .new-card:active .desc{ color: var(--ink); transition-duration: 0s; }
+.acx .new-card:active .arrow{
+    color: var(--accent-deep);
+    transform: translateX(5px);
+    transition-duration: 0s;
+  }
+
+/* 第三段试用：松手后先压缩蓄力，再把整张稿卡向右递出；墨迹从箭头后方拉开，
+ * 标题像装订前归拢字距。这里刻意不做整卡淡出，那属于下一段试用。 */
+.acx .new-card.is-launching{
+    background: #F3E9E6;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(139, 58, 46, 0.10),
+                0 2px 6px rgba(30, 42, 46, 0.08);
+    cursor: progress;
+    transform-origin: center;
+    will-change: transform, border-radius;
+    animation: acx-card-dispatch .42s cubic-bezier(.22, .68, .28, 1) forwards;
+  }
+.acx .new-card.is-launching::before{ transform: scaleY(1); }
+.acx .new-card.is-launching .ttl{
+    color: var(--accent-deep);
+    animation: acx-title-gather .42s ease-out forwards;
+  }
+.acx .new-card.is-launching .desc{ color: var(--ink); }
+.acx .new-card.is-launching .arrow{
+    color: var(--accent-deep);
+    animation: acx-arrow-send .42s cubic-bezier(.22, .61, .36, 1) forwards;
+  }
+.acx .new-card.is-launching .arrow::after{
+    width: 42px;
+    animation: acx-ink-trail .42s ease-out forwards;
+  }
+
+@keyframes acx-card-dispatch{
+  0%{
+    transform: translateX(0) scale(1);
+    border-radius: 2px;
+  }
+  32%{
+    transform: translateX(-5px) scaleX(.93) scaleY(.88);
+    border-radius: 14px 5px 5px 14px;
+  }
+  68%{
+    transform: translateX(5px) scaleX(1.025) scaleY(.96);
+    border-radius: 12px 30px 30px 12px;
+  }
+  100%{
+    transform: translateX(9px) scaleX(.97) scaleY(.92);
+    border-radius: 18px 38px 38px 18px;
+  }
+}
+
+@keyframes acx-title-gather{
+  from{ letter-spacing: .02em; transform: translateX(0); }
+  to{ letter-spacing: -.015em; transform: translateX(4px); }
+}
+
+@keyframes acx-arrow-send{
+  0%{ opacity: 1; transform: translateX(5px); }
+  72%{ opacity: 1; transform: translateX(24px); }
+  100%{ opacity: 0; transform: translateX(58px); }
+}
+
+@keyframes acx-ink-trail{
+  0%{ opacity: 0; transform: scaleX(0); }
+  35%{ opacity: .78; }
+  72%{ opacity: .62; transform: translateX(0) scaleX(1); }
+  100%{ opacity: 0; transform: translateX(34px) scaleX(.12); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .acx .new-card,
+  .acx .new-card::before,
+  .acx .new-card .ttl,
+  .acx .new-card .desc,
+  .acx .new-card .arrow{ transition: none; }
+  .acx .new-card.is-launching .ttl,
+  .acx .new-card.is-launching,
+  .acx .new-card.is-launching .arrow,
+  .acx .new-card.is-launching .arrow::after{ animation: none; }
+}
 
 /* 进入页 */
 .acx .landing{
@@ -930,8 +1083,29 @@
     padding: 24px 0;
   }
 
+.acx .landing .landing-image-frame{
+    width: min(220px, 68vw);
+    height: 260px;
+    overflow: hidden;
+    background: var(--paper-soft);
+    border-radius: 18px;
+    box-shadow: 0 12px 34px rgba(30, 42, 46, 0.10);
+    -webkit-mask-image: radial-gradient(ellipse 94% 92% at center, #000 70%, rgba(0, 0, 0, 0.88) 82%, transparent 100%);
+    mask-image: radial-gradient(ellipse 94% 92% at center, #000 70%, rgba(0, 0, 0, 0.88) 82%, transparent 100%);
+  }
+
+.acx .landing .landing-image{
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center 54%;
+    filter: saturate(0.88) contrast(0.94) brightness(1.03);
+  }
+
 .acx .landing .ctas{
     flex: 0 0 auto;
+    margin-bottom: 32px;
   }
 
 .acx .landing h1{
@@ -1003,12 +1177,18 @@
 .acx .tlink:hover{ color: var(--ink); }
 
 /* 出场动效（用于 screen 切换） */
-.acx .fade-in{ animation: fadeIn .26s ease-out; }
+.acx .fade-in{
+    animation: fadeIn 560ms cubic-bezier(.22, .61, .36, 1) both;
+  }
 
 @keyframes fadeIn {
-    from{ opacity: 0; transform: translateY(4px); }
-    to  { opacity: 1; transform: translateY(0); }
+    from{ opacity: 0; }
+    to  { opacity: 1; }
   }
+
+@media (prefers-reduced-motion: reduce){
+  .acx .fade-in{ animation: none; }
+}
 
 /* 输入容器对齐 */
 .acx .group{ display: flex; flex-direction: column; gap: 4px; }

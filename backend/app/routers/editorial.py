@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.schemas.editorial import (
     AuditLogResponse,
+    EditorialOperationsMetricsResponse,
     EditorialOverviewResponse,
     EditorialPromptDetail,
     EditorialPromptSummary,
@@ -36,6 +37,7 @@ from app.services.editorial_service import (
     create_vocabulary_term,
     get_editorial_prompt,
     get_editorial_overview,
+    get_editorial_operations_metrics,
     get_editorial_strategy,
     get_vocabulary_version,
     list_editorial_prompts,
@@ -89,6 +91,18 @@ def editorial_overview(
     principal: StaffPrincipal = Depends(require_editorial_lead),
 ):
     return _internal_read(get_editorial_overview, "读取编辑策略概览失败")
+
+
+@router.get(
+    "/operations-metrics", response_model=EditorialOperationsMetricsResponse
+)
+def editorial_operations_metrics(
+    days: Literal["7", "30", "90"] = Query(default="30"),
+    principal: StaffPrincipal = Depends(require_editorial_lead),
+):
+    return _internal_read(
+        lambda: get_editorial_operations_metrics(int(days)), "读取编辑运营指标失败"
+    )
 
 
 @router.get("/prompts", response_model=list[EditorialPromptSummary])

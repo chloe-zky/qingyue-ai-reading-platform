@@ -1,6 +1,6 @@
 import unittest
 
-from app.utils.rate_limit import RateRule, SlidingWindowLimiter
+from app.utils.rate_limit import RateRule, SlidingWindowLimiter, public_rate_rule
 
 
 class SlidingWindowLimiterTests(unittest.TestCase):
@@ -21,6 +21,17 @@ class SlidingWindowLimiterTests(unittest.TestCase):
 
         self.assertEqual(limiter.check(rule, "one", now=0), (True, 0))
         self.assertEqual(limiter.check(rule, "two", now=0), (True, 0))
+
+    def test_dynamic_public_routes_are_rate_limited(self):
+        self.assertEqual(
+            public_rate_rule("GET", "/api/author/articles/BR-1-secret/status").name,
+            "author.status.single",
+        )
+        self.assertEqual(
+            public_rate_rule("GET", "/api/books/42").name,
+            "books.detail",
+        )
+        self.assertIsNone(public_rate_rule("GET", "/api/books/not-an-id"))
 
 
 if __name__ == "__main__":

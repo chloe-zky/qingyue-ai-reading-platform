@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 
@@ -45,12 +45,13 @@ class AdminServiceTests(unittest.TestCase):
         self.assertIsNone(request.api_key)
 
     def test_update_keeps_existing_key_when_request_omits_it(self):
+        fake = MagicMock()
         with patch(
             "app.services.admin_service.get_llm_api_key",
             return_value="existing-secret",
-        ), patch("app.services.admin_service.update_config_value") as update, patch(
-            "app.services.admin_service.store_llm_api_key"
-        ) as store:
+        ), patch("app.services.admin_service.supabase", fake), patch(
+            "app.services.admin_service.encrypt_secret"
+        ) as encrypt:
             update_llm_config(
                 api_base="https://example.com/v1",
                 api_key=None,
@@ -59,53 +60,64 @@ class AdminServiceTests(unittest.TestCase):
                 max_retries=3,
             )
 
-        updated_keys = [item.args[0] for item in update.call_args_list]
-        self.assertNotIn("llm_api_key", updated_keys)
-        store.assert_not_called()
-        self.assertIn(call("llm_timeout_seconds", "45", "AI 请求超时秒数"), update.call_args_list)
-        self.assertIn(call("llm_max_retries", "3", "AI 请求最大重试次数"), update.call_args_list)
+        name, payload = fake.rpc.call_args.args
+        self.assertEqual(name, "update_llm_config_atomic")
+        self.assertIsNone(payload["p_ciphertext"])
+        self.assertEqual(payload["p_timeout_seconds"], 45)
+        self.assertEqual(payload["p_max_retries"], 3)
+        encrypt.assert_not_called()
 
     def test_first_configuration_requires_key(self):
         with patch(
             "app.services.admin_service.get_llm_api_key",
             return_value="",
-        ), patch("app.services.admin_service.update_config_value") as update:
+        ), patch("app.services.admin_service.supabase") as fake:
             with self.assertRaisesRegex(ValueError, "首次配置"):
                 update_llm_config(
                     api_base="https://example.com/v1",
                     api_key=None,
                     model_name="example-model",
                 )
-        update.assert_not_called()
+        fake.rpc.assert_not_called()
 
     def test_update_replaces_key_when_new_secret_is_present(self):
+        fake = MagicMock()
+        envelope = {
+            "ciphertext": "enc:v1:key:nonce:ciphertext",
+            "key_id": "key",
+            "algorithm": "AES-256-GCM",
+        }
         with patch(
             "app.services.admin_service.get_llm_api_key",
             return_value="existing-secret",
-        ), patch("app.services.admin_service.update_config_value") as update, patch(
-            "app.services.admin_service.store_llm_api_key"
-        ) as store:
+        ), patch("app.services.admin_service.supabase", fake), patch(
+            "app.services.admin_service.encrypt_secret", return_value=envelope
+        ) as encrypt:
             update_llm_config(
                 api_base="https://example.com/v1",
                 api_key="new-secret",
                 model_name="example-model",
             )
-        store.assert_called_once_with("new-secret")
+        encrypt.assert_called_once_with("new-secret")
+        payload = fake.rpc.call_args.args[1]
+        self.assertEqual(payload["p_ciphertext"], envelope["ciphertext"])
+        self.assertEqual(payload["p_key_id"], "key")
 
     def test_update_preserves_omitted_timeout_and_retry_settings(self):
+        fake = MagicMock()
         with patch(
             "app.services.admin_service.get_llm_api_key",
             return_value="existing-secret",
-        ), patch("app.services.admin_service.update_config_value") as update:
+        ), patch("app.services.admin_service.supabase", fake):
             update_llm_config(
                 api_base="https://example.com/v1",
                 api_key=None,
                 model_name="example-model",
             )
 
-        updated_keys = [item.args[0] for item in update.call_args_list]
-        self.assertNotIn("llm_timeout_seconds", updated_keys)
-        self.assertNotIn("llm_max_retries", updated_keys)
+        payload = fake.rpc.call_args.args[1]
+        self.assertIsNone(payload["p_timeout_seconds"])
+        self.assertIsNone(payload["p_max_retries"])
 
     def test_connection_test_uses_fixed_probe_and_existing_secret(self):
         response = httpx.Response(

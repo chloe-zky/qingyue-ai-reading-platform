@@ -171,6 +171,49 @@ class RoleMatrixApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), overview)
 
+    def test_editorial_lead_can_read_operations_metrics(self):
+        self.authenticate_as(StaffRole.EDITORIAL_LEAD)
+        metrics = {
+            "period_days": 30,
+            "generated_at": "2026-08-30T12:00:00Z",
+            "submissions": {
+                "total": 4,
+                "pending_review": 1,
+                "revision_requested": 1,
+                "rejected": 1,
+                "published": 1,
+                "decision_rate_percent": 75.0,
+            },
+            "turnaround": {
+                "median_first_decision_hours": 4.0,
+                "median_publish_hours": 8.0,
+                "median_claim_wait_hours": 1.0,
+            },
+            "revisions": {"resubmission_count": 1, "average_revision_no": 1.2},
+            "tagging": {
+                "draft_count": 2,
+                "confirmed_count": 1,
+                "confirmed_coverage_percent": 25.0,
+            },
+        }
+        with patch(
+            "app.routers.editorial.get_editorial_operations_metrics",
+            return_value=metrics,
+        ) as service:
+            response = self.client.get("/api/editorial/operations-metrics?days=30")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["submissions"]["total"], 4)
+        service.assert_called_once_with(30)
+
+    def test_review_editor_cannot_read_operations_metrics(self):
+        self.authenticate_as(StaffRole.REVIEW_EDITOR)
+        with patch(
+            "app.routers.editorial.get_editorial_operations_metrics"
+        ) as service:
+            response = self.client.get("/api/editorial/operations-metrics")
+        self.assertEqual(response.status_code, 403)
+        service.assert_not_called()
+
     def test_platform_admin_cannot_read_editorial_configuration(self):
         self.authenticate_as(StaffRole.PLATFORM_ADMIN)
         with patch("app.routers.editorial.list_editorial_prompts") as service:

@@ -7,9 +7,11 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import APP_ENV, FRONTEND_ORIGINS, FRONTEND_ORIGIN_REGEX
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from app.config import ALLOWED_HOSTS, APP_ENV, FRONTEND_ORIGINS, FRONTEND_ORIGIN_REGEX
 from app.database import supabase
-from app.utils.rate_limit import PUBLIC_RATE_RULES, public_rate_limiter
+from app.utils.rate_limit import public_rate_limiter, public_rate_rule
+from app.utils.request_limits import RequestBodyLimitMiddleware
 from app.routers import (
     admin,
     authors,
@@ -28,10 +30,16 @@ from app.routers import (
 app = FastAPI(
     title="轻阅读 AI 内容与个性化阅读平台 API",
     description="读者、作者与三角色编辑工作台的统一服务边界",
+    docs_url=None if APP_ENV == "production" else "/docs",
+    redoc_url=None,
+    openapi_url=None if APP_ENV == "production" else "/openapi.json",
 )
 logger = logging.getLogger("uvicorn.error")
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 
+app.add_middleware(RequestBodyLimitMiddleware)
+if ALLOWED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(ALLOWED_HOSTS))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
@@ -49,7 +57,7 @@ async def request_context(request: Request, call_next):
     request_id = incoming if REQUEST_ID_RE.fullmatch(incoming) else uuid.uuid4().hex
     request.state.request_id = request_id
     started = time.perf_counter()
-    rule = PUBLIC_RATE_RULES.get((request.method, request.url.path))
+    rule = public_rate_rule(request.method, request.url.path)
     if rule:
         identity = request.client.host if request.client else "unknown"
         allowed, retry_after = public_rate_limiter.check(rule, identity)
@@ -84,6 +92,11 @@ async def request_context(request: Request, call_next):
             content={"detail": "服务暂时异常，请稍后重试。", "request_id": request_id},
         )
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if APP_ENV == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     logger.info(json.dumps({
         "event": "request.completed",
         "request_id": request_id,
@@ -129,4 +142,7 @@ def readiness_check():
     return {"status": "ready", "database": "available", "environment": APP_ENV}
 @app.get("/")
 def root():
-    return {"message": "轻阅读平台后端已启动，请访问 /docs 查看接口文档"}
+    message = "轻阅读平台后端已启动"
+    if APP_ENV != "production":
+        message += "，请访问 /docs 查看接口文档"
+    return {"message": message}

@@ -16,11 +16,15 @@
   max-width: 480px;
   /* Tab-bar sizing — shared by the content spacer, reader host, and the bar
      itself so they never drift apart.
-       --tabbar-h    : button (tap) area height
-       --tabbar-safe : home-indicator band; full safe-inset minus 8px so the
-                       bottom white isn't excessive, while icons keep clear. */
-  --tabbar-h: 52px;
-  --tabbar-safe: max(0px, env(safe-area-inset-bottom, 0px) - 8px);
+       --tabbar-h    : button (tap) area height. 图标 26 + 间隙 3 + 标签约 14
+                       ≈ 43px 内容，68px 时上下各余约 12.5px；此前 60px 只剩
+                       8.5px，正是「有点窄」的来源。
+       --tabbar-safe : no extra bottom band; keep the buttons' top and bottom
+                       whitespace equal and leave more room for page controls.
+                       它保持 0 是刻意的——一旦给底部单独加带，按钮就会被顶得
+                       偏上，上下留白不再相等。 */
+  --tabbar-h: 68px;
+  --tabbar-safe: 0px;
   background: #ffffff;
   height: 100vh;                /* fallback for old iOS */
   height: 100lvh;               /* large (toolbars-retracted) viewport height:
@@ -50,6 +54,21 @@
   overflow: hidden;
 }
 
+/* 发现页常驻 DOM，因此 Tab 切回来时靠 class 重新触发入场；如果里面正停在正文，
+ * UserApp 不加这个 class，读到一半来回切 Tab 不会让整篇文章漂动。 */
+.userapp-reader-host.is-page-entering {
+  animation: userapp-page-breathe 560ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+@keyframes userapp-page-breathe {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .userapp-reader-host.is-page-entering { animation: none; }
+}
+
 /* ── Bottom tab bar ──────────────────────────────────── */
 /*
  * Native-iOS-style tab bar (cf. ONE 一个 / Apple Music):
@@ -72,6 +91,10 @@
   align-items: stretch;
   justify-content: space-around;
   z-index: 10;
+  /* tab 栏本身不是滚动容器，在它上面起手的拖动会被 iOS 当成拖整个文档，
+   * 于是整条栏跟着页面一起弹、松手再弹回来。声明这里不承接平移手势即可钉死；
+   * 点击不受影响，touch-action 只关掉滚动/缩放这类默认手势。 */
+  touch-action: none;
 }
 
 .userapp-tab {

@@ -120,17 +120,6 @@ def _get_staff_profile(user_id: str) -> dict:
     return response.data[0]
 
 
-def _active_platform_admin_count() -> int:
-    response = (
-        supabase.table("staff_profiles")
-        .select("user_id")
-        .eq("role", StaffRole.PLATFORM_ADMIN.value)
-        .eq("status", "active")
-        .execute()
-    )
-    return len(response.data or [])
-
-
 def update_staff_account(
     user_id: str,
     request: UpdateStaffRequest,
@@ -154,28 +143,36 @@ def update_staff_account(
     if user_id == actor.user_id and changes_identity:
         raise StaffAccountConflictError("不能修改自己的角色或停用自己的账号")
 
-    removes_active_platform_admin = (
-        current.get("role") == StaffRole.PLATFORM_ADMIN.value
-        and current.get("status") == "active"
-        and (
-            changes.get("role", current.get("role"))
-            != StaffRole.PLATFORM_ADMIN.value
-            or changes.get("status", current.get("status")) != "active"
-        )
-    )
-    if removes_active_platform_admin and _active_platform_admin_count() <= 1:
-        raise StaffAccountConflictError("系统必须至少保留一个启用的平台管理员")
+    try:
+        response = supabase.rpc("update_staff_account_atomic", {
+            "p_actor": actor.user_id,
+            "p_target": user_id,
+            "p_display_name": changes.get("display_name"),
+            "p_role": changes.get("role"),
+            "p_status": changes.get("status"),
+        }).execute()
+    except Exception as exc:
+        message = str(exc).lower()
+        if "last active platform admin" in message:
+            raise StaffAccountConflictError(
+                "系统必须至少保留一个启用的平台管理员"
+            ) from exc
+        if "staff account not found" in message:
+            raise StaffAccountNotFoundError("找不到该员工账号") from exc
+        if "cannot update own role or status" in message:
+            raise StaffAccountConflictError(
+                "不能修改自己的角色或停用自己的账号"
+            ) from exc
+        raise
 
-    response = (
-        supabase.table("staff_profiles")
-        .update(changes)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    if not response.data:
+    data = response.data
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if not isinstance(data, dict) or not isinstance(data.get("after"), dict):
         raise StaffAccountConflictError("员工账号状态已变化，请刷新后重试")
 
-    updated = response.data[0]
+    current = data.get("before") if isinstance(data.get("before"), dict) else current
+    updated = data["after"]
     auth_user = _auth_users_by_id().get(user_id)
     return current, _merge_staff_profile(updated, auth_user)
 

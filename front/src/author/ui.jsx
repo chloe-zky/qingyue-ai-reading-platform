@@ -314,6 +314,7 @@ export function CoverDrop({ cover, onChoose, onRemove }) {
 
   return (
     <div className={'cover-drop' + (cover ? ' filled' : '')}
+         data-protected-image={cover?.url ? 'true' : undefined}
          onClick={!cover ? openPicker : undefined}
          style={cover && cover.url && cover.url !== 'placeholder'
            ? { backgroundImage: `url(${cover.url})`, backgroundSize: 'cover', backgroundPosition: 'center' }

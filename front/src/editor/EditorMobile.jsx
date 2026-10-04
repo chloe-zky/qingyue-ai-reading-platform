@@ -12,12 +12,7 @@
 // 独立阅读页：正文区「阅读全文 ›」→ 推入整屏阅读视图，「‹ 返回审稿」返回。
 
 import { useRef, useState } from 'react';
-
-const FIXED_TAGS = {
-  setting:      { k: '时代设定', en: 'setting', opts: ['现代', '古风', '民国'] },
-  story_tone:   { k: '故事基调', en: 'story_tone', opts: ['清甜校园', '遗憾青春', '温暖治愈', '浓情曲折'] },
-  relationship: { k: '关系内核', en: 'relationship', opts: ['暗恋未明', '久别重逢', '相伴成长', '命运拉扯'] },
-};
+import { editorTagGroups } from '../lib/tagApi';
 
 function Toast({ msg }) {
   if (!msg) return null;
@@ -317,23 +312,17 @@ function DetailScreen({ sub, core, onBack, onApprove, onReject, onRevise }) {
 
               <div className="grp">
                 <div className="grp-h"><span className="gt">AI 标签确认与修改</span><span className="gk">Tags</span></div>
-                <p className="grp-hint">三组核心标签为固定词表；美学与风险为自由文本（逗号分隔）。</p>
-                {Object.keys(FIXED_TAGS).map((cat) => (
-                  <div key={cat} className="tg">
-                    <div className="tk">{FIXED_TAGS[cat].k}<span className="en">{FIXED_TAGS[cat].en}</span></div>
+                <p className="grp-hint">全部标签均来自当前已发布词表，发布前由后端再次校验。</p>
+                {editorTagGroups(core.vocabulary).map((group) => (
+                  <div key={group.key} className="tg">
+                    <div className="tk">{group.label}<span className="en">{group.en}</span></div>
                     <div className="tset">
-                      {FIXED_TAGS[cat].opts.map((o) => (
-                        <span key={o} className={'tag' + (t[cat].includes(o) ? ' on' : '')} onClick={() => toggleTag(cat, o)}>{o}</span>
+                      {group.options.map((o) => (
+                        <span key={o} className={'tag' + (t[group.key].includes(o) ? ' on' : '')} onClick={() => toggleTag(group.key, o)}>{o}</span>
                       ))}
                     </div>
                   </div>
                 ))}
-                <div className="row2" style={{ marginTop: 4 }}>
-                  <div className="fl"><div className="k">美学标签（逗号分隔）</div>
-                    <input className="inp" value={t.aesthetic} placeholder="电影感, 旧胶片" onChange={(e) => setField('aesthetic', e.target.value)} /></div>
-                  <div className="fl"><div className="k">风险提示（逗号分隔）</div>
-                    <input className="inp" value={t.risk} placeholder="轻微虐" onChange={(e) => setField('risk', e.target.value)} /></div>
-                </div>
                 <div className="fl" style={{ marginBottom: 0 }}><div className="k">编辑推荐理由</div>
                   <textarea className="inp" value={t.reason} placeholder="一句话，告诉读者这篇好在哪里。" onChange={(e) => setField('reason', e.target.value)} /></div>
               </div>

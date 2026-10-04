@@ -7,11 +7,147 @@
 import { useCallback, useEffect, useState } from 'react';
 import Icon from './shared/Icon';
 import { PROMPT_STATUS } from './shared/constants';
-import { downloadCsv, staffApi, errorMessage, formatDateTime, toUiEditorialLog, toUiPrompt, toUiStrategy, versionLabel } from './api';
+import { downloadCsv, staffApi, errorMessage, formatDateTime, formatDuration, formatPercent, shareOf, toUiEditorialLog, toUiPrompt, toUiStrategy, versionLabel } from './api';
 import { Spin, StatusBadge, VersionBadge, EmptyState, ErrorState, LoadingState } from './shared/ui';
 import { UnsavedChangesDialog } from './shared/dialogs';
 
 const INITIAL_EDITORIAL_LOG_FILTERS = { module: '', action_contains: '', q: '' };
+
+const METRIC_PERIODS = [7, 30, 90];
+
+/* 稿件状态分布的展示顺序与配色，按审稿流转的先后排列。 */
+const SUBMISSION_BUCKETS = [
+  { key: 'pending_review', name: '待初审', kind: 'info' },
+  { key: 'revision_requested', name: '已退修', kind: 'warn' },
+  { key: 'rejected', name: '已拒稿', kind: 'err' },
+  { key: 'published', name: '已发布', kind: 'ok' },
+];
+
+/* ── 运营指标看板 ──
+ * 数据源：GET /api/editorial/operations-metrics?days=7|30|90（editorial_lead only）。
+ *
+ * 两条刻意的呈现约束：
+ * 1. 不画趋势图。当前只有单周期的聚合快照，没有分桶时间序列；画折线等于编造。
+ * 2. 样本不足时后端返回 null，一律显示 '—' 而不是 0 —— 「没有数据」和「零耗时」
+ *    在运营判断上是完全相反的结论。
+ */
+function OperationsMetrics() {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const load = useCallback(async (period) => {
+    setLoading(true); setLoadError('');
+    try { setData(await staffApi.operationsMetrics(period)); }
+    catch (error) { setData(null); setLoadError(errorMessage(error, '运营指标读取失败。')); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => load(days), 0);
+    return () => clearTimeout(timer);
+  }, [load, days]);
+
+  const s = data?.submissions;
+  const t = data?.turnaround;
+  const r = data?.revisions;
+  const g = data?.tagging;
+  const isEmpty = Boolean(data) && !(s?.total > 0);
+
+  return (
+    <>
+      <div className="card">
+        <div className="card-h">
+          <div>
+            <div className="ct"><Icon id="health" size={15} />运营指标</div>
+            <div className="csub">
+              投稿到发布的真实流转数据，统计口径为最近 {data?.period_days ?? days} 天
+              {data?.generated_at ? ` · 生成于 ${formatDateTime(data.generated_at)}` : ''}
+            </div>
+          </div>
+          <div className="seg">
+            {METRIC_PERIODS.map((p) => (
+              <button key={p} className={days === p ? 'on' : ''} onClick={() => setDays(p)} disabled={loading}>{p} 天</button>
+            ))}
+          </div>
+        </div>
+
+        {loading && <LoadingState rows={3} />}
+        {!loading && loadError && <ErrorState title="运营指标暂不可用" desc={loadError} onRetry={() => load(days)} />}
+        {!loading && !loadError && isEmpty && (
+          <EmptyState icon="doc" title="该周期内暂无投稿" desc={`最近 ${data.period_days ?? days} 天没有稿件进入审稿流程，切换更长的统计周期可能会有数据。`} />
+        )}
+        {!loading && !loadError && !isEmpty && data && (
+          <>
+            <div className="kpi-grid">
+              <div className="kpi">
+                <div className="kk"><Icon id="clock" size={14} />投稿至发布中位时长</div>
+                <div className="kv" style={{ fontSize: 26 }}>{formatDuration(t?.median_publish_hours)}</div>
+                <div className="kmeta">首次决策中位 {formatDuration(t?.median_first_decision_hours)}</div>
+              </div>
+              <div className="kpi">
+                <div className="kk"><Icon id="doc" size={14} />待审积压</div>
+                <div className="kv">{s?.pending_review ?? 0}<span className="u">篇</span></div>
+                <div className="kmeta">占本期投稿 {formatPercent(shareOf(s?.pending_review, s?.total))}</div>
+              </div>
+              <div className="kpi">
+                <div className="kk"><Icon id="check" size={14} />决策率</div>
+                <div className="kv">{formatPercent(s?.decision_rate_percent)}</div>
+                <div className="kmeta">本期投稿 {s?.total ?? 0} 篇</div>
+              </div>
+              <div className="kpi">
+                <div className="kk"><Icon id="tags" size={14} />标签确认覆盖率</div>
+                <div className="kv">{formatPercent(g?.confirmed_coverage_percent)}</div>
+                <div className="kmeta">已确认 {g?.confirmed_count ?? 0} · 草稿 {g?.draft_count ?? 0}</div>
+              </div>
+            </div>
+
+            <div className="ro-strip">
+              <div className="rs">
+                <div className="rs-k"><Icon id="clock" size={11} />认领等待中位</div>
+                <div className="rs-v">{formatDuration(t?.median_claim_wait_hours)}</div>
+              </div>
+              <div className="rs">
+                <div className="rs-k"><Icon id="clock" size={11} />首次决策中位</div>
+                <div className="rs-v">{formatDuration(t?.median_first_decision_hours)}</div>
+              </div>
+              <div className="rs">
+                <div className="rs-k"><Icon id="clock" size={11} />投稿至发布中位</div>
+                <div className="rs-v">{formatDuration(t?.median_publish_hours)}</div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {!loading && !loadError && !isEmpty && data && (
+        <div className="card pad0">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px 16px' }}>
+            <div>
+              <div className="ct" style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 16 }}>稿件状态分布</div>
+              <div className="csub">最近 {data.period_days ?? days} 天进入审稿流程的 {s?.total ?? 0} 篇稿件的去向</div>
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>
+              退修后再投 {r?.resubmission_count ?? 0} 次 · 平均修订轮次 {r?.average_revision_no != null ? Number(r.average_revision_no).toFixed(1) : '—'}
+            </span>
+          </div>
+          <table className="tbl">
+            <thead><tr><th>状态</th><th>数量</th><th>占比</th></tr></thead>
+            <tbody>
+              {SUBMISSION_BUCKETS.map((b) => (
+                <tr key={b.key}>
+                  <td><StatusBadge kind={b.kind}>{b.name}</StatusBadge></td>
+                  <td className="t-num">{s?.[b.key] ?? 0}</td>
+                  <td className="t-num">{formatPercent(shareOf(s?.[b.key], s?.total))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
 
 /* ── 1. 编辑策略概览 ── */
 export function EditorialOverview({ ctx }) {
@@ -39,6 +175,7 @@ export function EditorialOverview({ ctx }) {
         <div className="kpi"><div className="kk"><Icon id="tags" size={14} />当前标签词表</div><div className="kv" style={{ fontSize: 26 }}>{versionLabel(o.tag_vocabulary_version)}</div><div className="kmeta">最近发布 {formatDateTime(o.last_published_at)}</div></div>
         <div className="kpi"><div className="kk"><Icon id="reco" size={14} />当前推荐策略</div><div className="kv" style={{ fontSize: 26 }}>{versionLabel(o.strategy_version)}</div><div className="kmeta">AI 打标成功率尚无统计接口</div></div>
       </div>
+      <OperationsMetrics />
       <div className="card">
         <div className="card-h"><div className="ct">最近策略变更</div><button className="btn ghost sm" onClick={() => ctx.go('editLogs')}>查看发布记录</button></div>
         <div className="banner info"><span className="bd" /><span className="bx">最近一次发布：<b>{formatDateTime(o.last_published_at)}</b>。详细变更请查看编辑配置日志。</span></div>

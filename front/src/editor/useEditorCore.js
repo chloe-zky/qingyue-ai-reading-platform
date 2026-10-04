@@ -13,10 +13,37 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/apiClient';
+import { FALLBACK_VOCABULARY, getPublishedVocabulary } from '../lib/tagApi';
 
 // 配图上传前端校验（与后端 upload_service 一致）
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_COVER_BYTES = 5 * 1024 * 1024; // 5MB
+const COVER_LONG_EDGE = 720;
+const COVER_JPEG_QUALITY = 0.82;
+
+async function compressCoverImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, COVER_LONG_EDGE / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (result) => result ? resolve(result) : reject(new Error('图片压缩失败，请重新选择图片')),
+      'image/jpeg',
+      COVER_JPEG_QUALITY,
+    );
+  });
+  return new File([blob], 'cover-720.jpg', { type: 'image/jpeg' });
+}
 
 // ── 后端稿件 → 原型内部结构 ──────────────────────────────
 function normalize(book) {
@@ -45,8 +72,8 @@ function normalize(book) {
       setting: bt.setting_tags || [],
       story_tone: bt.story_tone_tags || [],
       relationship: bt.relationship_core_tags || [],
-      aesthetic: (bt.aesthetic_tags || []).join(', '),
-      risk: (bt.risk_tags || []).join(', '),
+      aesthetic: bt.aesthetic_tags || [],
+      risk: bt.risk_tags || [],
       reason: bt.recommend_reason || '',
     },
   };
@@ -55,17 +82,12 @@ function normalize(book) {
 // ── 原型内部结构 → approve 请求体 ────────────────────────
 function toApprovePayload(sub) {
   const t = sub.tags;
-  const splitCsv = (s) =>
-    (s || '')
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean);
   return {
     setting_tags: t.setting,
     story_tone_tags: t.story_tone,
     relationship_core_tags: t.relationship,
-    aesthetic_tags: splitCsv(t.aesthetic),
-    risk_tags: splitCsv(t.risk),
+    aesthetic_tags: t.aesthetic,
+    risk_tags: t.risk,
     recommend_reason: t.reason || '',
     cover_image_url: (sub.cover?.url || '').trim(),
     cover_photographer: (sub.cover?.photographer || '').trim(),
@@ -77,6 +99,7 @@ export function useEditorCore({ displayName = '编辑' } = {}) {
   const token = 'supabase-bearer-session';
   const user = displayName || '编辑';
   const [subs, setSubs] = useState([]);
+  const [vocabulary, setVocabulary] = useState(FALLBACK_VOCABULARY);
   const [msg, setMsg] = useState(null); // { kind:'ok'|'err', text }
 
   const okMsg = (text) => setMsg({ kind: 'ok', text });
@@ -104,8 +127,12 @@ export function useEditorCore({ displayName = '编辑' } = {}) {
 
   const reload = useCallback(async () => {
     try {
-      const list = await fetchSubmissions();
+      const [list, publishedVocabulary] = await Promise.all([
+        fetchSubmissions(),
+        getPublishedVocabulary().catch(() => FALLBACK_VOCABULARY),
+      ]);
       setSubs(list);
+      setVocabulary(publishedVocabulary);
       okMsg('已刷新待审列表。');
     } catch (e) {
       errMsg(`刷新失败：${e.message}`);
@@ -183,7 +210,7 @@ export function useEditorCore({ displayName = '编辑' } = {}) {
     }
   }, [ensureClaim, postDecision]);
 
-  // 真实配图上传。校验类型/大小 → POST /api/uploads/cover → 写回该稿 cover.url。
+  // 真实配图上传。统一压为 720px JPEG → POST /api/uploads/cover → 写回该稿 cover.url。
   // 返回公开 URL；失败抛错（调用方展示）。
   const uploadCover = useCallback(async (sub, file) => {
     if (!file) return;
@@ -193,8 +220,9 @@ export function useEditorCore({ displayName = '编辑' } = {}) {
     if (file.size > MAX_COVER_BYTES) {
       throw new Error('图片体积过大，上限 5MB');
     }
+    const optimizedFile = await compressCoverImage(file);
     const fd = new FormData();
-    fd.append('file', file);
+    fd.append('file', optimizedFile);
     const data = await apiFetch('/api/uploads/cover', { method: 'POST', body: fd });
     const url = data.cover_image_url;
     // 保留已填的摄影/说明，只替换 url；原本无 cover 则新建。
@@ -207,6 +235,7 @@ export function useEditorCore({ displayName = '编辑' } = {}) {
     token,
     user,
     subs,
+    vocabulary,
     msg,
     setMsg,
     login,

@@ -3,6 +3,7 @@
 // Shows: cover image, title, author, intro (扉页语), 进入阅读 button.
 // Does NOT show: score, matched_tags, recommend_reason, AI labels.
 
+import { useEffect, useRef } from 'react';
 import { PaperBg, Divider, CoverImage, ListIntro, TopInset, BottomInset } from './shared.jsx';
 
 const PAGE_SIZE = 3;
@@ -12,20 +13,29 @@ function ordinal(n) {
   return ORDINALS[n] ?? String(n + 1);
 }
 
-// ── Shared back-button row (matches ReadingScreen nav) ─────────────────────
-function BackRow({ theme, onBack }) {
+// ── Top action row ─────────────────────────────────────────────────────────
+// One quiet action, given its own band above the masthead. The underline under
+// the label is the same affordance the 首页 CTA uses, so the row reads as a
+// deliberate header action rather than a stray link; the air below it (see the
+// masthead's top padding) is what actually keeps it off the 轻阅读 title.
+function BackRow({ theme, onBack, label = '返回' }) {
   return (
-    <div style={{ padding: '4px 24px 0', display: 'flex', alignItems: 'center' }}>
+    <div style={{ padding: '0 24px' }}>
       <button
         onClick={onBack}
         style={{
           background: 'transparent', border: 'none', cursor: 'pointer',
           padding: 0,
-          display: 'flex', alignItems: 'center', gap: 5,
+          // The 44px tap target stays, but its content rides at the top of it:
+          // that lifts the label clear of the masthead without eating into the
+          // status-bar safe area above (TopInset), which is already minimal.
+          display: 'flex', alignItems: 'flex-start', gap: 6,
           minHeight: 44,
           WebkitTapHighlightColor: 'transparent',
         }}
       >
+        {/* 14px glyph against a ~14.4px text line — top-aligning the two leaves
+            the chevron optically centred on the label, above the rule. */}
         <svg width="9" height="14" viewBox="0 0 10 16" fill="none">
           <path d="M8 2L2 8l6 6"
             stroke={theme.ink} strokeWidth="1.1"
@@ -37,9 +47,11 @@ function BackRow({ theme, onBack }) {
           fontSize: 12,
           fontWeight: theme.weights.body,
           color: theme.ink,
-          letterSpacing: '0.04em',
+          letterSpacing: '0.06em',
+          paddingBottom: 3,
+          borderBottom: `1px solid ${theme.divider}`,
         }}>
-          返回
+          {label}
         </span>
       </button>
     </div>
@@ -47,11 +59,11 @@ function BackRow({ theme, onBack }) {
 }
 
 // ── Empty / error fallback ─────────────────────────────────────────────────
-function EmptyState({ theme, error, onBack }) {
+function EmptyState({ theme, error, onBack, backLabel }) {
   return (
     <PaperBg theme={theme}>
       <TopInset theme={theme} />
-      <BackRow theme={theme} onBack={onBack} />
+      <BackRow theme={theme} onBack={onBack} label={backLabel} />
       <div style={{
         padding: '40px 24px',
         display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12,
@@ -85,22 +97,36 @@ function EmptyState({ theme, error, onBack }) {
 }
 
 // ── Main list ─────────────────────────────────────────────────────────────
-export function ListScreen({ theme, articles, error, page, onPage, onOpen, onBack }) {
+export function ListScreen({
+  theme, articles, error, page, onPage, onOpen, onBack,
+  backLabel, notice,
+}) {
+  // 翻辑后回到页首。翻页按钮在页面底部，而换辑只是换了内容、并没有换 DOM
+  // 节点，滚动位置会原样留在底部——于是「下一辑」看起来像直接落到了新一辑的
+  // 末尾。这里在 page 变化后把滚动容器拉回顶部。
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [page]);
+
   if (!articles || (articles.length === 0)) {
-    return <EmptyState theme={theme} error={error} onBack={onBack} />;
+    return (
+      <EmptyState theme={theme} error={error} onBack={onBack} backLabel={backLabel} />
+    );
   }
 
   const totalPages = Math.ceil(articles.length / PAGE_SIZE);
   const slice      = articles.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
-    <PaperBg theme={theme}>
+    <PaperBg theme={theme} scrollRef={scrollRef}>
       <TopInset theme={theme} />
 
-      <BackRow theme={theme} onBack={onBack} />
+      <BackRow theme={theme} onBack={onBack} label={backLabel} />
 
-      {/* Masthead */}
-      <div style={{ padding: '4px 24px 0' }}>
+      {/* Masthead — the 18px band below the action row is deliberate breathing
+          space; without it the 重选今日偏好 label sits right on the title. */}
+      <div style={{ padding: '18px 24px 0' }}>
         <div style={{
           fontFamily: theme.serif,
           fontSize: 18,
@@ -120,6 +146,22 @@ export function ListScreen({ theme, articles, error, page, onPage, onOpen, onBac
         }}>
           二〇二六年五月 · 第{ordinal(page)}辑
         </div>
+
+        {/* Server-authored notice — set when the backend had to top the page up
+            with nearest-match candidates instead of exact tag matches. */}
+        {notice && (
+          <div style={{
+            marginTop: 10,
+            fontFamily: theme.sans,
+            fontSize: 11.5,
+            fontWeight: theme.weights.body,
+            color: theme.inkLight,
+            lineHeight: 1.7,
+            letterSpacing: '0.02em',
+          }}>
+            {notice}
+          </div>
+        )}
       </div>
 
       <Divider theme={theme} style={{ margin: '18px 24px 0' }} />

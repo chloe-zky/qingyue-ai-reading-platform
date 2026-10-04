@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, deque
 from dataclasses import dataclass
+import re
 from threading import Lock
 import time
 
@@ -19,7 +20,35 @@ PUBLIC_RATE_RULES = {
     ("POST", "/api/author/article-statuses"): RateRule("author.status", 30, 60),
     ("POST", "/api/recommendations"): RateRule("recommendations", 60, 60),
     ("POST", "/api/feedback"): RateRule("feedback", 30, 60),
+    # 搜索是公开接口，每次要打两条数据库查询；前端已有 280ms 防抖，正常用户
+    # 远达不到这个上限，脚本化刷取则会被挡住。
+    ("GET", "/api/books/search"): RateRule("books.search", 60, 60),
+    ("GET", "/api/books"): RateRule("books.catalog", 60, 60),
+    ("GET", "/api/tags/vocabulary"): RateRule("tags.vocabulary", 120, 60),
 }
+
+PUBLIC_DYNAMIC_RATE_RULES = (
+    (
+        "GET",
+        re.compile(r"^/api/author/articles/[^/]+/status$"),
+        RateRule("author.status.single", 30, 60),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/books/[1-9][0-9]*$"),
+        RateRule("books.detail", 120, 60),
+    ),
+)
+
+
+def public_rate_rule(method: str, path: str) -> RateRule | None:
+    exact = PUBLIC_RATE_RULES.get((method.upper(), path))
+    if exact:
+        return exact
+    for rule_method, pattern, rule in PUBLIC_DYNAMIC_RATE_RULES:
+        if method.upper() == rule_method and pattern.fullmatch(path):
+            return rule
+    return None
 
 
 class SlidingWindowLimiter:

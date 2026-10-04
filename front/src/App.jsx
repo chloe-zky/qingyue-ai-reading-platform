@@ -13,9 +13,10 @@
 //
 // 读者与 Studio 使用相互隔离的 Supabase Auth 会话；业务数据统一走 FastAPI。
 
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import LandingPage from './LandingPage';
 import ReaderAuthProvider from './reader/ReaderAuthProvider';
+import { useReaderAuth } from './reader/ReaderAuthContext';
 import './App.css';
 
 const UserApp = lazy(() => import('./UserApp'));
@@ -37,6 +38,13 @@ function ModeFallback() {
   );
 }
 
+function preventProtectedImageAction(event) {
+  const target = event.target;
+  if (target instanceof Element && target.closest('img, [data-protected-image]')) {
+    event.preventDefault();
+  }
+}
+
 function detectInitialMode() {
   if (typeof window === 'undefined') return 'landing';
   const { pathname, search, hash } = window.location;
@@ -56,13 +64,14 @@ function hasPendingAuthCallback(search, hash) {
 }
 
 function AppContent() {
+  const { session, loading: readerAuthLoading, recoveryMode } = useReaderAuth();
   const [appMode, setAppMode] = useState(detectInitialMode);
 
-  const navigate = (mode, { replace = false } = {}) => {
+  const navigate = useCallback((mode, { replace = false } = {}) => {
     const path = MODE_PATHS[mode] || '/';
     window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
     setAppMode(mode);
-  };
+  }, []);
 
   useEffect(() => {
     const onPopState = () => setAppMode(detectInitialMode());
@@ -82,13 +91,33 @@ function AppContent() {
     }
   }, [appMode]);
 
+  const shouldRestoreReader = appMode === 'landing'
+    && !readerAuthLoading
+    && Boolean(session)
+    && !recoveryMode;
+  const effectiveMode = shouldRestoreReader ? 'user' : appMode;
+
+  // 已登录读者直接渲染读者空间；Effect 只负责让地址栏与派生模式一致。
+  // 密码恢复仍停留在落地页，不会被自动跳转打断。
+  useEffect(() => {
+    if (!shouldRestoreReader || window.location.pathname === MODE_PATHS.user) return;
+    window.history.replaceState({}, '', MODE_PATHS.user);
+  }, [shouldRestoreReader]);
+
+  const restoringReader = appMode === 'landing' && readerAuthLoading;
+
   return (
-    <div className="app-shell">
-      {appMode === 'landing' && <LandingPage onNavigate={navigate} />}
+    <div
+      className="app-shell"
+      onContextMenuCapture={preventProtectedImageAction}
+      onDragStartCapture={preventProtectedImageAction}
+    >
+      {restoringReader && <ModeFallback />}
+      {effectiveMode === 'landing' && !restoringReader && <LandingPage onNavigate={navigate} />}
       <Suspense fallback={<ModeFallback />}>
-        {appMode === 'user' && <UserApp onExit={() => navigate('landing')} />}
-        {appMode === 'author' && <AuthorCenter onExit={() => navigate('landing')} />}
-        {appMode === 'studio' && <StudioPage onExit={() => navigate('landing')} />}
+        {effectiveMode === 'user' && <UserApp key={session?.user?.id || 'reader-loading'} onExit={() => navigate('landing')} />}
+        {effectiveMode === 'author' && <AuthorCenter onExit={() => navigate('landing')} />}
+        {effectiveMode === 'studio' && <StudioPage onExit={() => navigate('landing')} />}
       </Suspense>
     </div>
   );

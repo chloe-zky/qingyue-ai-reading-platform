@@ -71,5 +71,6 @@ def api_get_article_status(reference: str):
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception:
-        logger.exception("查询作者稿件状态失败: reference=%s", reference)
+        # reference 包含作者访问稿件的高熵凭证，绝不能进入日志。
+        logger.exception("查询作者稿件状态失败")
         raise HTTPException(status_code=500, detail="稿件状态查询失败，请稍后重试。")

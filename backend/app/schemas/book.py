@@ -1,6 +1,19 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
+class BookSearchItem(BaseModel):
+    """搜索结果卡片。只暴露公开展示字段，正文与审核字段一概不出现。"""
+
+    book_id: int
+    id: int
+    title: str
+    author: str
+    intro: str = ""
+    cover_image_url: str = ""
+    cover_photographer: str = ""
+    cover_caption: str = ""
+
+
 class BookCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 

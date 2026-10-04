@@ -104,6 +104,11 @@ def _ensure_profile(principal: ReaderPrincipal) -> dict:
 
 def get_reader_personalization(principal: ReaderPrincipal) -> dict:
     profile = _ensure_profile(principal)
+    return personalization_from_profile(profile)
+
+
+def personalization_from_profile(profile: dict) -> dict:
+    """Normalize a profile already fetched by a combined database RPC."""
     now = datetime.now(timezone.utc)
     return {
         "enabled": bool(profile.get("personalization_enabled", True)),

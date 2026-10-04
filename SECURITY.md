@@ -15,5 +15,5 @@ If a credential is exposed, revoke or rotate it first, then remove it from every
 ## Known pre-production limits
 
 - Author access currently relies on a high-entropy receipt rather than a full author account and ownership model.
-- The included SQL migrations extend an existing project schema; they do not initialize every base business table from an empty database.
+- The migration set includes an empty-project baseline. Releases must still run the read-only deployment preflight after applying every migration.
 - Production deployment requires an explicit CORS allowlist, Supabase RLS review, separate test data, and end-to-end authorization tests.

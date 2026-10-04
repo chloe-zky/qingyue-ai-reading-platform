@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: qingyue-reading-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health/live
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: ALLOWED_HOSTS
+        value: qingyue-reading-api.onrender.com
+      - key: LLM_ALLOWED_HOSTS
+        sync: false
+      - key: LLM_CONFIG_MASTER_KEYS
+        sync: false
+      - key: LLM_TRUST_PROXY_DNS
+        value: "false"

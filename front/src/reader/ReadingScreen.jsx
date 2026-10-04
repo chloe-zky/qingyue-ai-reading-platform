@@ -215,7 +215,16 @@ function FeedbackSection({ theme, article, requestId, userPrefs, visible }) {
 }
 
 // ── Reading screen ─────────────────────────────────────────────────────────
-export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, warm, onToggleWarm }) {
+export function ReadingScreen({
+  theme,
+  article,
+  requestId,
+  userPrefs,
+  onBack,
+  warm,
+  onToggleWarm,
+  respectTopSafeArea = false,
+}) {
   const { session, refreshProfile } = useReaderAuth();
   const bookId = article?.book_id;
   const scrollRef = useRef(null);
@@ -228,6 +237,8 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
   const [progress,  setProgress]  = useState(0);
   const [favorite, setFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [favoriteNotice, setFavoriteNotice] = useState('');
+  const favoriteNoticeTimer = useRef(null);
 
   const flushReadingProgress = useCallback(async ({ force = false, keepalive = false } = {}) => {
     if (!session || !bookId || flushInFlight.current) return;
@@ -328,16 +339,40 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
     };
   }, [session, article?.book_id, flushReadingProgress]);
 
+  // 提示条的定时器随组件一起收走，避免卸载后再回来设状态。
+  useEffect(() => () => {
+    if (favoriteNoticeTimer.current) window.clearTimeout(favoriteNoticeTimer.current);
+  }, []);
+
+  // 先落状态再发请求：点下去立刻变成「已收藏」，网络在后台跑完。
+  //
+  // 之前是等接口回来才改标签，慢网下点完像没反应；而且当时只有 try/finally，
+  // 没有 catch —— 请求失败会静默吞掉，用户以为收藏成功了其实没有。现在失败
+  // 回滚到原状态并明确提示，成功则以服务端返回的值为准。
+  function showFavoriteNotice(text) {
+    setFavoriteNotice(text);
+    if (favoriteNoticeTimer.current) window.clearTimeout(favoriteNoticeTimer.current);
+    favoriteNoticeTimer.current = window.setTimeout(() => setFavoriteNotice(''), 2600);
+  }
+
   async function toggleFavorite() {
-    if (!session || favoriteBusy) return;
+    if (!session || favoriteBusy) return;   // 请求在途时忽略重复点击
+    const next = !favorite;
+    setFavorite(next);
     setFavoriteBusy(true);
+    setFavoriteNotice('');
     try {
-      const next = favorite
-        ? await readerApi.removeFavorite(article.book_id)
-        : await readerApi.addFavorite(article.book_id);
-      setFavorite(next.is_favorite);
+      const result = next
+        ? await readerApi.addFavorite(article.book_id)
+        : await readerApi.removeFavorite(article.book_id);
+      setFavorite(Boolean(result.is_favorite));
       refreshProfile();
-    } finally { setFavoriteBusy(false); }
+    } catch {
+      setFavorite(!next);
+      showFavoriteNotice(next ? '收藏未完成，请重试' : '取消收藏未完成，请重试');
+    } finally {
+      setFavoriteBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -371,7 +406,20 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
     ? warm ? 'rgba(251,248,242,0.96)' : 'rgba(246,246,243,0.96)'
     : 'transparent';
 
-  const navTopPadding = theme.__inFrame ? 56 : 0;
+  // ReaderPage already owns the real-mobile safe-area inset, while the Home
+  // and Mine tab overlays mount ReadingScreen directly inside UserApp. Keep
+  // that host responsibility explicit so the direct overlays clear the notch
+  // without double-padding the normal discovery flow.
+  const navTopPadding = theme.__inFrame
+    ? 56
+    : respectTopSafeArea
+      ? 'env(safe-area-inset-top, 0px)'
+      : 0;
+  const contentTopSpacer = theme.__inFrame
+    ? 84
+    : respectTopSafeArea
+      ? 'calc(60px + env(safe-area-inset-top, 0px))'
+      : 60;
 
   return (
     <>
@@ -419,10 +467,36 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
             <WarmToggle theme={theme} on={warm} onToggle={onToggleWarm} />
           </div>
         </div>
+
+        {/* 失败提示：贴着顶栏下沿，右对齐到收藏按钮那一侧。
+            沿用本页语汇——纸色底、一条细线、靛蓝墨字，不引入弹窗或新的强调色。 */}
+        {favoriteNotice && (
+          <div
+            role="status"
+            style={{
+              position: 'absolute',
+              top: '100%', right: 24,
+              marginTop: 6,
+              padding: '6px 10px',
+              background: theme.bg,
+              border: `0.5px solid ${theme.divider}`,
+              borderRadius: 2,
+              fontFamily: theme.sans,
+              fontSize: 11.5,
+              fontWeight: theme.weights.body,
+              color: theme.accent,
+              letterSpacing: '0.04em',
+              whiteSpace: 'nowrap',
+              animation: 'reader-fade-in 180ms ease-out',
+            }}
+          >
+            {favoriteNotice}
+          </div>
+        )}
       </div>
 
       <PaperBg theme={theme} scrollRef={scrollRef}>
-        <div style={{ height: theme.__inFrame ? 84 : 60 }} />
+        <div style={{ height: contentTopSpacer, flexShrink: 0 }} />
 
         <div style={{ padding: '0 24px' }}>
           <div style={{
@@ -494,12 +568,21 @@ export function ReadingScreen({ theme, article, requestId, userPrefs, onBack, wa
               <div key={i} style={{
                 fontFamily: theme.sans,
                 fontSize: 15,
-                fontWeight: theme.weights.body,
+                fontWeight: theme.weights.readingBody,
                 color: theme.ink,
                 lineHeight: 1.95,
-                marginBottom: i < paragraphs.length - 1 ? 18 : 0,
-                letterSpacing: '0.02em',
-                textWrap: 'pretty',
+                // 公众号式排版：段间提行、不做首行缩进——大量短对话段与 Part 分节
+                // 若逐段缩进反而显乱。段距明显大于行距，靠留白区隔段落。
+                marginBottom: i < paragraphs.length - 1 ? 24 : 0,
+                // 正文不加字距、不两端对齐（对照公众号原版）：中文是方块字，
+                // 左对齐时右端本就基本齐平；而 letter-spacing / justify 会撑出忽大
+                // 忽小的字间距与标点周围空隙，肉眼反而不适。
+                letterSpacing: 'normal',
+                textAlign: 'left',
+                // 不用 text-wrap:pretty——iOS Safari 会为避免“末行过短”把整段的行
+                // 压窄重排（如 21+21+8 变成 18+18+14），导致逐段行长不一、右端参差
+                // 忽大忽小。默认断行让每行排满，中文等宽方块字下右端自然齐平。
+                textWrap: 'auto',
               }}>
                 {para}
               </div>

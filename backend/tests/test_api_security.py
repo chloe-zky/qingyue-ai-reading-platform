@@ -6,6 +6,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.config import MAX_JSON_BODY_BYTES
 from app.utils.auth import StaffPrincipal, StaffRole, require_review_editor
 
 
@@ -120,6 +121,16 @@ class ApiSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertRegex(response.headers.get("x-request-id", ""), r"^[a-f0-9]{32}$")
 
+    def test_oversized_json_body_is_rejected_before_parsing(self):
+        response = self.client.post(
+            "/api/feedback",
+            content=b"{}",
+            headers={"Content-Length": str(MAX_JSON_BODY_BYTES + 1)},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["detail"], "请求内容过大")
+        self.assertRegex(response.headers.get("x-request-id", ""), r"^[a-f0-9]{32}$")
+
     def test_readiness_reports_database_availability(self):
         query = MagicMock()
         query.select.return_value = query
@@ -129,6 +140,22 @@ class ApiSecurityTests(unittest.TestCase):
             response = self.client.get("/api/health/ready")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["database"], "available")
+
+    def test_published_vocabulary_is_public_and_has_no_internal_metadata(self):
+        vocabulary = {
+            "version_no": 3,
+            "setting_tags": ["现代"],
+            "story_tone_tags": ["温暖治愈"],
+            "relationship_core_tags": ["久别重逢"],
+            "aesthetic_tags": ["电影感"],
+            "risk_tags": ["情感背叛"],
+        }
+        with patch("app.routers.tags.get_valid_vocabularies", return_value=vocabulary):
+            response = self.client.get("/api/tags/vocabulary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), vocabulary)
+        self.assertNotIn("id", response.json())
 
 
 if __name__ == "__main__":

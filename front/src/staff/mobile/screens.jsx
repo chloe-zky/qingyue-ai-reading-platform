@@ -12,7 +12,7 @@ import Icon from '../shared/Icon';
 import { ROLES } from '../shared/constants';
 import { useStaffAuth } from '../../auth/staffAuth';
 import {
-  staffApi, errorMessage, formatDateTime, versionLabel,
+  staffApi, errorMessage, formatDateTime, formatDuration, formatPercent, shareOf, versionLabel,
   toUiStaff, toUiTechnicalLog, toUiEditorialLog, toUiPrompt, toUiStrategy,
   toUiSubmission, toUiReviewLog,
 } from '../api';
@@ -372,6 +372,79 @@ export function MAdminLogs() {
 }
 
 /* ══════════ 编辑部负责人（文艺）══════════ */
+const M_METRIC_PERIODS = [7, 30, 90];
+const M_BUCKETS = [
+  { key: 'pending_review', name: '待初审', kind: 'info' },
+  { key: 'revision_requested', name: '已退修', kind: 'warn' },
+  { key: 'rejected', name: '已拒稿', kind: 'err' },
+  { key: 'published', name: '已发布', kind: 'ok' },
+];
+
+/* 运营指标 · 手机端只读概要。
+ * 开发说明 §六：手机端聚焦查看与状态，不复制桌面的表格与多列布局 ——
+ * 因此这里用 seg-ctl + kpi-grid + ro-list 承载，不搬桌面那张分布表。
+ * 同样不画趋势图：只有单周期快照，没有时间序列。 */
+function MOperationsMetrics() {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const load = useCallback(async (period) => {
+    setLoading(true); setLoadError('');
+    try { setData(await staffApi.operationsMetrics(period)); }
+    catch (error) { setData(null); setLoadError(errorMessage(error, '运营指标读取失败。')); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { const t = setTimeout(() => load(days), 0); return () => clearTimeout(t); }, [load, days]);
+
+  const s = data?.submissions;
+  const t = data?.turnaround;
+  const g = data?.tagging;
+  const isEmpty = Boolean(data) && !(s?.total > 0);
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div>
+          <div className="ct">运营指标</div>
+          <div className="csub">最近 {data?.period_days ?? days} 天投稿流转</div>
+        </div>
+      </div>
+      <div className="seg-ctl" style={{ marginBottom: 12 }}>
+        {M_METRIC_PERIODS.map((p) => (
+          <button key={p} className={days === p ? 'on' : ''} onClick={() => setDays(p)} disabled={loading}>{p} 天</button>
+        ))}
+      </div>
+      {loading && <MLoading rows={2} />}
+      {!loading && loadError && <MError title="运营指标暂不可用" desc={loadError} onRetry={() => load(days)} />}
+      {!loading && !loadError && isEmpty && (
+        <MEmpty icon="doc" title="该周期内暂无投稿" desc="切换更长的统计周期可能会有数据。" />
+      )}
+      {!loading && !loadError && !isEmpty && data && (
+        <>
+          <div className="kpi-grid" style={{ marginBottom: 12 }}>
+            <div className="kpi"><div className="kk"><Icon id="clock" size={13} />投稿至发布</div><div className="kv" style={{ fontSize: 20 }}>{formatDuration(t?.median_publish_hours)}</div><div className="kmeta">中位时长</div></div>
+            <div className="kpi"><div className="kk"><Icon id="doc" size={13} />待审积压</div><div className="kv">{s?.pending_review ?? 0}<span className="u">篇</span></div><div className="kmeta">共 {s?.total ?? 0} 篇投稿</div></div>
+            <div className="kpi"><div className="kk"><Icon id="check" size={13} />决策率</div><div className="kv" style={{ fontSize: 22 }}>{formatPercent(s?.decision_rate_percent)}</div><div className="kmeta">已给出结论</div></div>
+            <div className="kpi"><div className="kk"><Icon id="tags" size={13} />标签确认率</div><div className="kv" style={{ fontSize: 22 }}>{formatPercent(g?.confirmed_coverage_percent)}</div><div className="kmeta">已确认 {g?.confirmed_count ?? 0} 篇</div></div>
+          </div>
+          <div className="ro-list">
+            <div className="rr"><span className="rr-k"><Icon id="clock" size={12} />首次决策中位</span><span className="rr-v">{formatDuration(t?.median_first_decision_hours)}</span></div>
+            <div className="rr"><span className="rr-k"><Icon id="clock" size={12} />认领等待中位</span><span className="rr-v">{formatDuration(t?.median_claim_wait_hours)}</span></div>
+            {M_BUCKETS.map((b) => (
+              <div className="rr" key={b.key}>
+                <span className="rr-k"><MBadge kind={b.kind}>{b.name}</MBadge></span>
+                <span className="rr-v">{s?.[b.key] ?? 0} 篇 · {formatPercent(shareOf(s?.[b.key], s?.total))}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function MLeadHome({ ctx }) {
   const [o, setO] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -393,6 +466,7 @@ export function MLeadHome({ ctx }) {
           <div className="kpi" style={{ padding: '13px 12px' }}><div className="kk" style={{ fontSize: 10.5 }}>词表</div><div className="kv" style={{ fontSize: 22 }}>{versionLabel(o.tag_vocabulary_version)}</div><div className="kmeta">当前生效</div></div>
           <div className="kpi" style={{ padding: '13px 12px' }}><div className="kk" style={{ fontSize: 10.5 }}>推荐</div><div className="kv" style={{ fontSize: 22 }}>{versionLabel(o.strategy_version)}</div><div className="kmeta">当前生效</div></div>
         </div>
+        <MOperationsMetrics />
         <DeskCue><b>Prompt、词表、推荐策略的编辑与发布</b>为高风险内容操作，请在桌面端完成。手机端可查看当前生效版本并查看日志。</DeskCue>
         <div className="card" style={{ marginTop: 14 }}><div className="card-h"><div className="ct">查看 / 轻操作</div></div>
           <div className="card pad0" style={{ margin: 0, border: 0 }}>

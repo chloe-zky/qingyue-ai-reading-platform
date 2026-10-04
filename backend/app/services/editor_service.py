@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
-
 from app.database import supabase
 from app.schemas.editor import ApproveArticleRequest
+from app.services.recommendation_service import clear_recommendation_cache
+from app.services.tag_service import get_valid_vocabularies
 
 
 class SubmissionNotFoundError(ValueError):
@@ -15,10 +15,12 @@ class SubmissionStateConflictError(ValueError):
     pass
 
 
-TAG_SNAPSHOT_COLUMNS = (
-    "book_id,setting_tags,story_tone_tags,relationship_core_tags,"
-    "aesthetic_tags,risk_tags,recommend_reason,tag_status,tag_source,"
-    "raw_response,llm_provider,model_name,prompt_version"
+CONTROLLED_TAG_FIELDS = (
+    "setting_tags",
+    "story_tone_tags",
+    "relationship_core_tags",
+    "aesthetic_tags",
+    "risk_tags",
 )
 
 
@@ -134,14 +136,22 @@ def _ensure_claim_owner(book: dict, actor_user_id: str | None) -> None:
         raise SubmissionStateConflictError("审稿认领已过期，请重新认领。")
 
 
-def _restore_previous_tags(book_id: int, previous_tags: Optional[dict]) -> None:
-    """Best-effort compensation if publishing the book fails after tag upsert."""
-    if previous_tags:
-        supabase.table("book_ai_tags").upsert(
-            previous_tags, on_conflict="book_id"
-        ).execute()
-    else:
-        supabase.table("book_ai_tags").delete().eq("book_id", book_id).execute()
+def _validated_tag_payload(tags_data: ApproveArticleRequest) -> dict:
+    vocabularies = get_valid_vocabularies()
+    invalid = {}
+    for field in CONTROLLED_TAG_FIELDS:
+        allowed = set(vocabularies.get(field) or [])
+        rejected = [tag for tag in getattr(tags_data, field) if tag not in allowed]
+        if rejected:
+            invalid[field] = rejected
+    if invalid:
+        detail = "；".join(
+            f"{field}: {', '.join(values)}" for field, values in invalid.items()
+        )
+        raise ValueError(f"以下标签不在当前已发布词表中：{detail}")
+    return {
+        field: list(getattr(tags_data, field)) for field in CONTROLLED_TAG_FIELDS
+    } | {"recommend_reason": tags_data.recommend_reason or ""}
 
 
 def _record_editor_decision(
@@ -226,112 +236,41 @@ def approve_submission(
     tags_data: ApproveArticleRequest,
     actor_user_id: str | None = None,
 ) -> dict:
-    # 1. 检查文章是否存在
-    book_res = (
-        supabase.table("books")
-        .select("id,status,review_claimed_by,review_claim_expires_at")
-        .eq("id", book_id)
-        .execute()
-    )
-    if not book_res.data:
-        raise SubmissionNotFoundError("找不到该稿件")
+    if not actor_user_id:
+        raise SubmissionStateConflictError("请先认领该稿件后再发布。")
 
-    current_status = book_res.data[0].get("status")
-    if current_status != "pending_review":
-        raise SubmissionStateConflictError(
-            f"稿件当前状态为 {current_status or 'unknown'}，不能重复审核通过。"
-        )
-    _ensure_claim_owner(book_res.data[0], actor_user_id)
-
-    previous_tags_res = (
-        supabase.table("book_ai_tags")
-        .select(TAG_SNAPSHOT_COLUMNS)
-        .eq("book_id", book_id)
-        .execute()
-    )
-    previous_tags = (previous_tags_res.data or [None])[0]
-
-    # 2. 更新/插入审核确认后的标签
-    # 标签 payload 不应包含配图字段——book_ai_tags 表没有这些列。
-    tag_payload = {
-        "setting_tags":           tags_data.setting_tags,
-        "story_tone_tags":        tags_data.story_tone_tags,
-        "relationship_core_tags": tags_data.relationship_core_tags,
-        "aesthetic_tags":         tags_data.aesthetic_tags,
-        "risk_tags":              tags_data.risk_tags,
-        "recommend_reason":       tags_data.recommend_reason or "",
-        "book_id":                book_id,
-        "tag_status":             "confirmed",
-        "tag_source":             "ai_reviewed",
-    }
-    supabase.table("book_ai_tags").upsert(
-        tag_payload, on_conflict="book_id"
-    ).execute()
-
-    # 3. 将文章状态改为 active，并写入编辑配图三件套。
-    #    兼容尚未做 ALTER TABLE 的旧库：先带配图字段更新，列缺失时回退仅更新 status。
-    book_update = {
-        "status":             "active",
-        "cover_image_url":    (tags_data.cover_image_url or "").strip(),
+    tag_payload = _validated_tag_payload(tags_data)
+    cover_payload = {
+        "cover_image_url": (tags_data.cover_image_url or "").strip(),
         "cover_photographer": (tags_data.cover_photographer or "").strip(),
-        "cover_caption":      (tags_data.cover_caption or "").strip(),
-        "review_claimed_by": None,
-        "review_claimed_at": None,
-        "review_claim_expires_at": None,
+        "cover_caption": (tags_data.cover_caption or "").strip(),
     }
     try:
-        try:
-            update_query = supabase.table("books").update(book_update).eq(
-                "id", book_id
-            ).eq("status", "pending_review")
-            if actor_user_id:
-                update_query = update_query.eq("review_claimed_by", actor_user_id)
-            update_res = update_query.execute()
-            if not update_res.data:
-                raise SubmissionStateConflictError("稿件认领或状态已变化，请刷新后重试。")
-        except Exception as e:
-            msg = str(e).lower()
-            missing_cover_column = (
-                any(
-                    key in msg
-                    for key in (
-                        "cover_image_url",
-                        "cover_photographer",
-                        "cover_caption",
-                    )
-                )
-                and any(
-                    key in msg
-                    for key in ("column", "schema", "not find", "does not exist")
-                )
-            )
-            if not missing_cover_column:
-                raise
-            fallback = supabase.table("books").update({
-                "status": "active",
-                "review_claimed_by": None,
-                "review_claimed_at": None,
-                "review_claim_expires_at": None,
-            }).eq("id", book_id).eq("status", "pending_review")
-            if actor_user_id:
-                fallback = fallback.eq("review_claimed_by", actor_user_id)
-            fallback_res = fallback.execute()
-            if not fallback_res.data:
-                raise SubmissionStateConflictError("稿件认领或状态已变化，请刷新后重试。")
-    except Exception as publish_error:
-        try:
-            _restore_previous_tags(book_id, previous_tags)
-        except Exception as rollback_error:
-            raise RuntimeError(
-                "稿件发布失败，且标签状态自动回滚失败，请人工检查该稿件。"
-            ) from rollback_error
-        if isinstance(publish_error, SubmissionStateConflictError):
-            raise publish_error
-        raise RuntimeError("稿件发布失败，标签状态已自动恢复。") from publish_error
+        response = supabase.rpc("publish_reviewed_book", {
+            "p_book_id": book_id,
+            "p_actor": actor_user_id,
+            "p_tags": tag_payload,
+            "p_cover": cover_payload,
+        }).execute()
+    except Exception as error:
+        message = str(error)
+        lowered = message.lower()
+        if "稿件不存在" in message or "p0002" in lowered:
+            raise SubmissionNotFoundError("找不到该稿件") from error
+        if any(token in lowered for token in ("22023", "40001", "42501")) or any(
+            token in message for token in ("不能重复", "认领", "并发", "无权发布")
+        ):
+            raise SubmissionStateConflictError(
+                "稿件认领或状态已变化，请刷新后重试。"
+            ) from error
+        raise RuntimeError("稿件原子发布失败，请稍后重试。") from error
 
+    data = response.data or {}
+    result = data[0] if isinstance(data, list) and data else data
+    clear_recommendation_cache()
     return {
         "message": "审核通过，稿件已进入推荐池。",
-        "book_id": book_id,
-        "article_status": "active",
-        "tag_status": "confirmed"
+        "book_id": int(result.get("book_id", book_id)),
+        "article_status": result.get("article_status", "active"),
+        "tag_status": result.get("tag_status", "confirmed"),
     }

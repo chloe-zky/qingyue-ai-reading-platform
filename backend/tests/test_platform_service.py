@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.schemas.platform import UpdateStaffRequest
@@ -49,16 +50,51 @@ class PlatformStaffSafetyTests(unittest.TestCase):
         with patch(
             "app.services.platform_service._get_staff_profile",
             return_value=current,
-        ), patch(
-            "app.services.platform_service._active_platform_admin_count",
-            return_value=1,
-        ):
+        ), patch("app.services.platform_service.supabase") as fake:
+            fake.rpc.return_value.execute.side_effect = RuntimeError(
+                "last active platform admin"
+            )
             with self.assertRaises(StaffAccountConflictError):
                 update_staff_account(
                     target_id,
                     UpdateStaffRequest(role=StaffRole.EDITORIAL_LEAD),
                     self.actor,
                 )
+
+    def test_staff_identity_update_uses_atomic_database_function(self):
+        target_id = "22222222-2222-2222-2222-222222222222"
+        current = {
+            "user_id": target_id,
+            "display_name": "旧名字",
+            "role": StaffRole.EDITORIAL_LEAD.value,
+            "status": "active",
+        }
+        updated = {**current, "display_name": "新名字"}
+        fake = MagicMock()
+        fake.rpc.return_value.execute.return_value = SimpleNamespace(
+            data={"before": current, "after": updated}
+        )
+
+        with patch(
+            "app.services.platform_service._get_staff_profile",
+            return_value=current,
+        ), patch(
+            "app.services.platform_service._auth_users_by_id",
+            return_value={},
+        ), patch("app.services.platform_service.supabase", fake):
+            before, result = update_staff_account(
+                target_id,
+                UpdateStaffRequest(display_name="新名字"),
+                self.actor,
+            )
+
+        name, payload = fake.rpc.call_args.args
+        self.assertEqual(name, "update_staff_account_atomic")
+        self.assertEqual(payload["p_actor"], self.actor.user_id)
+        self.assertEqual(payload["p_target"], target_id)
+        self.assertEqual(payload["p_display_name"], "新名字")
+        self.assertEqual(before["display_name"], "旧名字")
+        self.assertEqual(result["display_name"], "新名字")
 
 
 class PlatformStorageHealthTests(unittest.TestCase):

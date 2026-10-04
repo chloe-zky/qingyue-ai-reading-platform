@@ -1,6 +1,22 @@
 /* HomeTab.css — quiet daily atmosphere page. */
 
 .hometab-root {
+  /* Vertical budget. The card must fit the tab-content box without scrolling,
+     otherwise the CTA ends up glued to the bottom nav.
+       available = 100lvh − tabbar(52 + safe-bottom) − this block's own padding
+     On a notched 390×844 iPhone that is ~766px, and padding-top alone eats
+     28 + env(safe-area-inset-top)≈47. A desktop 390×844 preview has no safe
+     areas, so it has ~47px more room than the phone — which is why a flat
+     380px cover looks fine in a browser screenshot and overflows on device.
+     Hence the cap: 380px is the design value, honoured wherever it fits, and
+     42vh keeps ~34px of breathing room under the CTA on real notched phones
+     (and scales down further on an SE-sized screen). */
+  --hometab-cover-h:   min(380px, 42vh);
+  --hometab-cover-gap: 28px;
+  /* Height the loading placeholder reserves for the quote area — roughly a
+     two-line quote plus its source line, i.e. the common case. */
+  --hometab-quote-min: 120px;
+
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -9,29 +25,86 @@
   padding: calc(28px + env(safe-area-inset-top, 0px)) 24px 32px;
   display: flex;
   flex-direction: column;
+  /* 整块（眉标 + 封面 + 引语 + CTA）在可用高度里竖向居中，富余的空白上下平分。
+     以前眉标顶在最上面、空白全落在 CTA 下方，整页看着往上吊；屏幕越高越明显。
+     居中是按「剩余空间」分配的，所以手机上本来就挤的版式几乎不动，桌面这种
+     高窗口才会明显下移。
+     safe center：万一内容真的比可用高度还高（超小屏 + 超长引语），支持的浏览器
+     会自动退回顶端对齐，不至于把顶部裁掉又滚不回去；不支持的浏览器读到的是
+     上面那行普通 center，此时封面本来也会先压缩来腾地方。 */
+  justify-content: center;
+  justify-content: safe center;
   color: #15171c;
-  /* Soft rise-in on enter — fade + slight upward slide. */
-  animation: hometab-rise 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
-@keyframes hometab-rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* 封面、推荐语与出处作为一个完整画面渐显。只改变透明度，不推动整块内容，
+   避免产生卡片/板块被搬入画面的感觉。 */
+@keyframes hometab-reveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-/* Subtle inner cascade so cover / quote / cta feel like they each
-   settle into place, not all snap together. */
-.hometab-eyebrow     { animation: hometab-rise 520ms 60ms  cubic-bezier(0.22,0.61,0.36,1) both; }
-.hometab-cover       { animation: hometab-rise 600ms 120ms cubic-bezier(0.22,0.61,0.36,1) both; }
-.hometab-quote-block { animation: hometab-rise 600ms 200ms cubic-bezier(0.22,0.61,0.36,1) both; }
-.hometab-actions     { animation: hometab-rise 600ms 280ms cubic-bezier(0.22,0.61,0.36,1) both; }
+.hometab-content {
+  /* 只占自己需要的高度，把富余留给 .hometab-root 去上下平分——原来是 flex:1
+     吃满剩余空间，根节点那层就没有空白可分，居中也就无从谈起。 */
+  flex: 0 1 auto;
+  /* min-height:0 disables the flex automatic minimum size, so an over-tall
+     card compresses (cover first, see below) instead of turning the page into
+     a scroller that parks the CTA against the tab bar. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: hometab-reveal 620ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+/* Loading — a calm paper field that already occupies the final geometry.
+   No fake cover, no empty quote frame, nothing that will be replaced. */
+.hometab-loading {
+  /* 与 .hometab-content 一致：撑到最终版式的高度就停，剩下的交给根节点居中，
+     数据到达时这块的位置才不会整体跳一下。 */
+  flex: 0 1 auto;
+  min-height: calc(var(--hometab-cover-h) + var(--hometab-cover-gap) + var(--hometab-quote-min));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: none;
+  border-radius: 8px;
+  background: #fbf8f2;
+}
+
+.hometab-loading-text {
+  font-size: 12.5px;
+  font-weight: 300;
+  letter-spacing: 0.14em;
+  color: #7e828a;
+}
+
+.hometab-loading-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.hometab-loading-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #b9b3a6;
+  animation: hometab-breathe 1500ms ease-in-out infinite;
+}
+.hometab-loading-dots i:nth-child(2) { animation-delay: 220ms; }
+.hometab-loading-dots i:nth-child(3) { animation-delay: 440ms; }
+
+@keyframes hometab-breathe {
+  0%, 100% { opacity: 0.22; transform: scale(0.86); }
+  50%      { opacity: 0.72; transform: scale(1); }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .hometab-root,
-  .hometab-eyebrow,
-  .hometab-cover,
-  .hometab-quote-block,
-  .hometab-actions { animation: none; }
+  .hometab-content,
+  .hometab-loading-dots i { animation: none; }
+  .hometab-loading-dots i { opacity: 0.45; }
 }
 
 .hometab-eyebrow {
@@ -43,15 +116,34 @@
   margin-bottom: 22px;
 }
 
+/* Cover box — same geometry whether it holds a real <img> (ready) or is the
+   tinted paper block (fallback). A real element, not background-image, so the
+   cache layer can gate the reveal on decode(). */
 .hometab-cover {
+  display: block;
   width: 100%;
-  height: 380px;
-  background-size: cover;
-  background-position: center;
+  height: var(--hometab-cover-h);
+  /* The cover is the only block allowed to give up height when the card still
+     doesn't fit (long quote, short phone) — object-fit crops, never distorts.
+     Below this floor the page scrolls rather than shrinking the image further. */
+  min-height: 240px;
+  padding: 0;
+  border: none;
+  -webkit-appearance: none;   /* the ready-state cover is a <button> */
+  appearance: none;
   background-color: #d8d2c4;
   border-radius: 8px;
-  margin-bottom: 28px;
+  margin-bottom: var(--hometab-cover-gap);
+  overflow: hidden;
   box-shadow: 0 8px 20px -8px rgba(20, 18, 14, 0.12);
+}
+
+.hometab-cover-img {
+  display: block;          /* kills the inline-image baseline gap */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 /* Quote block — open 「 hangs at top-left (outside text column),
@@ -62,6 +154,10 @@
    right-aligned to close the composition asymmetrically. */
 .hometab-quote-block {
   position: relative;
+  /* Text blocks never shrink — only the cover does. A previous min-height here
+     padded a two-line quote out to 150px, which pushed the whole card ~33px
+     past the phone viewport and re-glued the CTA to the tab bar. */
+  flex-shrink: 0;
   padding: 6px 4px 22px 14px;
   margin-bottom: 22px;
 }
@@ -107,10 +203,16 @@
 }
 
 /* Click affordance for cover & quote when we have a real pick. */
-.hometab-cover.is-clickable,
+.hometab-cover-button,
 .hometab-quote.is-clickable {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* The cover is a <button> so Enter/Space open the article too. */
+.hometab-cover-button:focus-visible {
+  outline: 2px solid #1f2a5c;
+  outline-offset: 3px;
 }
 
 /* Reading overlay host — fills the userapp content area so ReadingScreen's
@@ -124,7 +226,11 @@
 }
 
 .hometab-actions {
-  margin-top: auto;
+  /* Keep the discovery action in the reading composition, directly after the
+     quote. With .hometab-content now filling the remaining height, auto used
+     to consume every spare pixel and pin this row against the bottom tab bar. */
+  margin-top: 0;
+  flex-shrink: 0;
   display: flex;
   justify-content: center;
   padding: 18px 0 14px;

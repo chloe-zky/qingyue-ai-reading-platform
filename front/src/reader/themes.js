@@ -46,7 +46,8 @@ export const WEIGHT_DEFAULTS = {
   option:       400,   // option labels in step screen
   masthead:     300,   // "轻阅读" heading — round 5 lighter
   intro:        300,   // 扉页推荐语
-  body:         300,   // body paragraphs + captions
+  body:         300,   // captions / bylines / feedback / eyebrow-adjacent text
+  readingBody:  400,   // 阅读页正文段落 — 比 body 深一档（Light→Regular），久读更清晰
   eyebrow:      400,   // "NO. 01 · 推荐" labels
 };
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
+from statistics import median
 
 from app.database import supabase
 from app.schemas.editorial import (
@@ -92,6 +94,179 @@ def get_editorial_overview() -> dict:
         ),
         "last_published_at": _latest_published_at(all_versions),
     }
+
+
+_DECISION_ACTIONS = {
+    "submission.approve",
+    "submission.reject",
+    "submission.revision_requested",
+}
+
+
+def _parse_utc(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _elapsed_hours(start, end) -> float | None:
+    start_at = _parse_utc(start)
+    end_at = _parse_utc(end)
+    if not start_at or not end_at or end_at < start_at:
+        return None
+    return (end_at - start_at).total_seconds() / 3600
+
+
+def _rounded_median(values: list[float]) -> float | None:
+    return round(float(median(values)), 1) if values else None
+
+
+def _percent(part: int, total: int) -> float:
+    return round(part * 100 / total, 1) if total else 0.0
+
+
+def _build_operations_metrics(
+    books: list[dict],
+    tags: list[dict],
+    review_events: list[dict],
+    period_days: int,
+    generated_at: datetime,
+) -> dict:
+    """Build cohort metrics without exposing manuscript or author data.
+
+    The cohort consists of submissions created during the selected period. Audit
+    events provide immutable claim/decision timestamps because active review
+    leases are intentionally cleared after a decision.
+    """
+    status_counts = {
+        "pending_review": 0,
+        "revision_requested": 0,
+        "rejected": 0,
+        "active": 0,
+    }
+    created_by_book: dict[str, str] = {}
+    revision_numbers: list[int] = []
+    for book in books:
+        status = str(book.get("status") or "")
+        if status in status_counts:
+            status_counts[status] += 1
+        created_by_book[str(book.get("id"))] = book.get("created_at")
+        try:
+            revision_numbers.append(max(1, int(book.get("current_revision_no") or 1)))
+        except (TypeError, ValueError):
+            revision_numbers.append(1)
+
+    first_claim_by_book: dict[str, str] = {}
+    first_decision_by_book: dict[str, str] = {}
+    first_publish_by_book: dict[str, str] = {}
+    for event in sorted(review_events, key=lambda row: str(row.get("created_at") or "")):
+        book_id = str(event.get("resource_id") or "")
+        if book_id not in created_by_book:
+            continue
+        action = str(event.get("action") or "")
+        created_at = event.get("created_at")
+        if action == "submission.claim" and book_id not in first_claim_by_book:
+            first_claim_by_book[book_id] = created_at
+        if action in _DECISION_ACTIONS and book_id not in first_decision_by_book:
+            first_decision_by_book[book_id] = created_at
+        if action == "submission.approve" and book_id not in first_publish_by_book:
+            first_publish_by_book[book_id] = created_at
+
+    def durations(events: dict[str, str]) -> list[float]:
+        values = [
+            _elapsed_hours(created_by_book[book_id], happened_at)
+            for book_id, happened_at in events.items()
+        ]
+        return [value for value in values if value is not None]
+
+    tag_by_book = {
+        str(row.get("book_id")): str(row.get("tag_status") or "")
+        for row in tags
+        if str(row.get("book_id")) in created_by_book
+    }
+    draft_count = sum(value == "draft" for value in tag_by_book.values())
+    confirmed_count = sum(value == "confirmed" for value in tag_by_book.values())
+    total = len(books)
+    decided = (
+        status_counts["revision_requested"]
+        + status_counts["rejected"]
+        + status_counts["active"]
+    )
+    revision_total = sum(revision_numbers)
+    return {
+        "period_days": period_days,
+        "generated_at": generated_at,
+        "submissions": {
+            "total": total,
+            "pending_review": status_counts["pending_review"],
+            "revision_requested": status_counts["revision_requested"],
+            "rejected": status_counts["rejected"],
+            "published": status_counts["active"],
+            "decision_rate_percent": _percent(decided, total),
+        },
+        "turnaround": {
+            "median_first_decision_hours": _rounded_median(
+                durations(first_decision_by_book)
+            ),
+            "median_publish_hours": _rounded_median(durations(first_publish_by_book)),
+            "median_claim_wait_hours": _rounded_median(durations(first_claim_by_book)),
+        },
+        "revisions": {
+            "resubmission_count": max(0, revision_total - len(revision_numbers)),
+            "average_revision_no": round(revision_total / total, 1) if total else 0.0,
+        },
+        "tagging": {
+            "draft_count": draft_count,
+            "confirmed_count": confirmed_count,
+            "confirmed_coverage_percent": _percent(confirmed_count, total),
+        },
+    }
+
+
+def get_editorial_operations_metrics(period_days: int = 30) -> dict:
+    generated_at = datetime.now(timezone.utc)
+    since = generated_at - timedelta(days=period_days)
+    books = (
+        supabase.table("books")
+        .select("id,status,created_at,current_revision_no")
+        .gte("created_at", since.isoformat())
+        .execute()
+        .data
+        or []
+    )
+    book_ids = [row["id"] for row in books]
+    tags: list[dict] = []
+    review_events: list[dict] = []
+    if book_ids:
+        tags = (
+            supabase.table("book_ai_tags")
+            .select("book_id,tag_status")
+            .in_("book_id", book_ids)
+            .execute()
+            .data
+            or []
+        )
+        review_events = (
+            supabase.table("audit_logs")
+            .select("resource_id,action,created_at")
+            .eq("domain", "review")
+            .eq("resource_type", "book")
+            .in_("resource_id", [str(book_id) for book_id in book_ids])
+            .gte("created_at", since.isoformat())
+            .order("created_at", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    return _build_operations_metrics(
+        books, tags, review_events, period_days, generated_at
+    )
 
 
 def list_editorial_prompts() -> list[dict]:
